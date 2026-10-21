@@ -3,10 +3,9 @@ package training
 import "context"
 
 type Store interface {
-	Start(context.Context, Session) (Session, error)
 	AddSet(context.Context, AddSetInput) (Set, float64, error)
 	UpdateSet(context.Context, int64, SetPatch) (Set, float64, error)
-	DeleteSet(context.Context, int64) (int64, float64, int, error)
+	DeleteSet(context.Context, int64, *int) (int64, float64, int, error)
 	GetSession(context.Context, int64) (Session, error)
 	ListSessions(context.Context, ListFilter) ([]SessionSummary, error)
 	RecentExercises(context.Context, int) ([]ExerciseMemory, error)
@@ -39,4 +38,32 @@ type Store interface {
 	SetExerciseNote(context.Context, ExerciseNote) error
 	ExerciseNotes(context.Context) ([]ExerciseNote, error)
 	SupersetFor(context.Context, int64, string) (string, error)
+
+	// Engine v2.
+	//
+	// GetOrCreateWorkout is atomic: concurrent callers for one date all get the
+	// same workout. WorkoutByDate returns ErrNotFound when there is none.
+	GetOrCreateWorkout(ctx context.Context, date string) (Session, bool, error)
+	WorkoutByDate(context.Context, string) (Session, error)
+	// LogBatch applies a whole BatchInput in one transaction, including the
+	// idempotency record.
+	LogBatch(context.Context, BatchInput) (BatchResult, error)
+	GetSet(context.Context, int64) (Set, error)
+	// AttachPlan copies a plan into an existing workout that follows no plan.
+	AttachPlan(ctx context.Context, sessionID, planID int64) error
+
+	Exercises(context.Context) ([]Exercise, error)
+	GetExercise(ctx context.Context, idOrName string) (Exercise, error)
+	AddExerciseAlias(ctx context.Context, exerciseID int64, alias string) error
+	RemoveExerciseAlias(ctx context.Context, alias string) error
+	RenameExercise(ctx context.Context, exerciseID int64, newName string) error
+
+	// ImportPlan stores a validated plan in one transaction. With dryRun it
+	// reports the outcome and rolls back.
+	ImportPlan(ctx context.Context, p Plan, onConflict string, dryRun bool) (PlanImportResult, error)
+	// ReplacePlan swaps a plan's name, notes and items atomically.
+	ReplacePlan(ctx context.Context, id int64, p Plan, expectedRevision *int) (Plan, error)
+	DeletePlanExpected(ctx context.Context, id int64, expectedRevision *int) error
+
+	SetRecords(ctx context.Context, from, to string) ([]SetRecord, error)
 }

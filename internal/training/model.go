@@ -9,6 +9,11 @@ import (
 var (
 	ErrValidation = errors.New("validation error")
 	ErrNotFound   = errors.New("not found")
+	// ErrConflict means the write was rejected to protect existing data: a stale
+	// revision, or an idempotency key reused with a different payload.
+	ErrConflict = errors.New("conflict")
+	// ErrAmbiguous means a name could refer to more than one thing.
+	ErrAmbiguous = errors.New("ambiguous")
 )
 
 type Session struct {
@@ -20,16 +25,38 @@ type Session struct {
 	// snapshot so renaming or deleting a plan never rewrites past sessions.
 	PlanID   int64  `json:"plan_id,omitempty"`
 	PlanName string `json:"plan_name,omitempty"`
+	// Revision increments on every change to the workout or its sets and
+	// prescriptions. Callers pass it back as expected_revision to detect
+	// concurrent edits.
+	Revision int `json:"revision"`
+	// Progress compares planned against completed work per exercise. Populated
+	// by workout reads, empty otherwise.
+	Progress []PlanProgress `json:"progress,omitempty"`
 }
+
+// Set is one performed set. Weight, reps, RPE and RIR are pointers because
+// "not recorded" (nil) is different from zero: a nil weight is unknown, a zero
+// weight is an explicit zero load. Nothing is ever defaulted on the user's
+// behalf.
 type Set struct {
-	ID        int64   `json:"id"`
-	SessionID int64   `json:"session_id"`
-	Position  int     `json:"position"`
-	Exercise  string  `json:"exercise"`
-	WeightKG  float64 `json:"weight_kg"`
-	Reps      int     `json:"reps"`
-	RPE       float64 `json:"rpe"`
-	SI        float64 `json:"si"`
+	ID         int64    `json:"id"`
+	SessionID  int64    `json:"session_id"`
+	Position   int      `json:"position"`
+	ExerciseID int64    `json:"exercise_id"`
+	Exercise   string   `json:"exercise"`
+	WeightKG   *float64 `json:"weight_kg"`
+	Reps       *int     `json:"reps"`
+	RPE        *float64 `json:"rpe"`
+	RIR        *float64 `json:"rir"`
+	SetType    string   `json:"set_type"`
+	Notes      string   `json:"notes,omitempty"`
+	// SetNumber is the 1-based order of this set among the same exercise in the
+	// workout. Derived on read; use ID, not SetNumber, to address a set.
+	SetNumber int `json:"set_number,omitempty"`
+	Revision  int `json:"revision"`
+	// SI is the legacy RPE-derived intensity score. It is 0 when RPE was not
+	// recorded.
+	SI float64 `json:"si"`
 	// Technique is an optional intensity method applied to this set. Empty
 	// means a normal straight set.
 	Technique string `json:"technique,omitempty"`
@@ -56,20 +83,40 @@ type SessionSummary struct {
 	PlanName string  `json:"plan_name,omitempty"`
 }
 type AddSetInput struct {
-	SessionID int64
-	Exercise  string
-	WeightKG  float64
-	Reps      int
-	RPE       float64
-	Technique string
-	Superset  string
+	SessionID  int64
+	ExerciseID int64 // optional exact reference; wins over Exercise
+	Exercise   string
+	WeightKG   *float64
+	Reps       *int
+	RPE        *float64
+	RIR        *float64
+	SetType    string
+	Notes      string
+	Technique  string
+	Superset   string
 }
+
+// SetPatch changes only the fields given. A Clear* flag sets the value back to
+// "not recorded", which a nil pointer alone cannot express.
 type SetPatch struct {
-	Exercise  *string
-	WeightKG  *float64
-	Reps      *int
-	RPE       *float64
-	Technique *string
+	ExerciseID *int64
+	Exercise   *string
+	WeightKG   *float64
+	Reps       *int
+	RPE        *float64
+	RIR        *float64
+	SetType    *string
+	Notes      *string
+	Technique  *string
+
+	ClearWeight bool
+	ClearReps   bool
+	ClearRPE    bool
+	ClearRIR    bool
+
+	// ExpectedRevision, when non-nil, makes the update fail with ErrConflict if
+	// the set changed since the caller read it.
+	ExpectedRevision *int
 }
 type ListFilter struct {
 	Limit    int
@@ -127,6 +174,9 @@ type PlanItem struct {
 	RepMin     int     `json:"rep_min,omitempty"`
 	RepMax     int     `json:"rep_max,omitempty"`
 	TargetRPE  float64 `json:"target_rpe,omitempty"`
+	// TargetWeightKG and TargetRIR are optional; nil means "not prescribed".
+	TargetWeightKG *float64 `json:"target_weight_kg,omitempty"`
+	TargetRIR      *float64 `json:"target_rir,omitempty"`
 }
 
 // Plan is a reusable workout template.
@@ -135,6 +185,8 @@ type Plan struct {
 	Name  string     `json:"name"`
 	Notes string     `json:"notes,omitempty"`
 	Items []PlanItem `json:"items,omitempty"`
+	// Revision increments on every change to the plan.
+	Revision int `json:"revision"`
 	// TotalSets is the planned set count, the number the volume-landmark
 	// feedback loop actually adjusts week to week.
 	TotalSets int `json:"total_sets"`
@@ -153,15 +205,20 @@ func (p PlanPatch) Empty() bool { return p.Name == nil && p.Notes == nil }
 // exercise. Exercises done but not planned appear with TargetSets 0, so going
 // off-plan is visible instead of hidden.
 type PlanProgress struct {
-	Superset    string  `json:"superset,omitempty"`
-	Notes       string  `json:"notes,omitempty"`
-	Exercise    string  `json:"exercise"`
-	MuscleGroup string  `json:"muscle_group,omitempty"`
-	TargetSets  int     `json:"target_sets"`
-	DoneSets    int     `json:"done_sets"`
-	RepMin      int     `json:"rep_min,omitempty"`
-	RepMax      int     `json:"rep_max,omitempty"`
-	TargetRPE   float64 `json:"target_rpe,omitempty"`
+	Superset    string `json:"superset,omitempty"`
+	Notes       string `json:"notes,omitempty"`
+	Exercise    string `json:"exercise"`
+	MuscleGroup string `json:"muscle_group,omitempty"`
+	TargetSets  int    `json:"target_sets"`
+	// DoneSets counts completed non-warm-up sets only. Planned sets never count
+	// as done; only logged sets do.
+	DoneSets       int      `json:"done_sets"`
+	WarmupSets     int      `json:"warmup_sets,omitempty"`
+	RepMin         int      `json:"rep_min,omitempty"`
+	RepMax         int      `json:"rep_max,omitempty"`
+	TargetRPE      float64  `json:"target_rpe,omitempty"`
+	TargetWeightKG *float64 `json:"target_weight_kg,omitempty"`
+	TargetRIR      *float64 `json:"target_rir,omitempty"`
 	// Skipped marks an exercise consciously dropped today. It stays listed so
 	// the session records what was decided, not just what was done.
 	Skipped bool `json:"skipped,omitempty"`
@@ -173,15 +230,18 @@ func (p PlanProgress) Done() bool { return p.TargetSets > 0 && p.DoneSets >= p.T
 // SessionItemPatch adjusts one exercise of today's session. Nil fields are left
 // unchanged, so a caller can bump only the set count without restating the rest.
 type SessionItemPatch struct {
-	TargetSets *int
-	RepMin     *int
-	RepMax     *int
-	TargetRPE  *float64
-	Skipped    *bool
+	TargetSets     *int
+	RepMin         *int
+	RepMax         *int
+	TargetRPE      *float64
+	TargetWeightKG *float64
+	TargetRIR      *float64
+	Skipped        *bool
 }
 
 func (p SessionItemPatch) Empty() bool {
-	return p.TargetSets == nil && p.RepMin == nil && p.RepMax == nil && p.TargetRPE == nil && p.Skipped == nil
+	return p.TargetSets == nil && p.RepMin == nil && p.RepMax == nil && p.TargetRPE == nil &&
+		p.TargetWeightKG == nil && p.TargetRIR == nil && p.Skipped == nil
 }
 
 // Feedback is the post-session response of one muscle group, each dimension
@@ -332,22 +392,31 @@ func LoadStep(weightKG float64) float64 {
 // whether 10 was the target or double it.
 func SuggestLoad(last *ExerciseSet, repMin, repMax int, targetRPE float64) LoadSuggestion {
 	out := LoadSuggestion{RepMin: repMin, RepMax: repMax, TargetRPE: targetRPE}
-	if last == nil {
-		out.Reason = "Sin series previas de este ejercicio: elige un peso que te deje en el rango objetivo."
+	if last == nil || last.WeightKG == nil || last.Reps == nil {
+		out.Reason = "Sin series previas completas de este ejercicio: elige un peso que te deje en el rango objetivo."
 		return out
 	}
-	out.LastWeightKG, out.LastReps, out.LastRPE = last.WeightKG, last.Reps, last.RPE
-	out.SuggestedKG = last.WeightKG
+	weight, reps := *last.WeightKG, *last.Reps
+	out.LastWeightKG, out.LastReps = weight, reps
+	if last.RPE != nil {
+		out.LastRPE = *last.RPE
+	}
+	out.SuggestedKG = weight
 	if repMax == 0 || targetRPE == 0 {
 		out.Reason = "Sin prescripción de reps o RPE, no puedo juzgar si el peso fue el adecuado."
 		return out
 	}
-	step := LoadStep(last.WeightKG)
+	if last.RPE == nil {
+		out.Reason = "La última serie no registró RPE, no puedo juzgar si el peso fue el adecuado."
+		return out
+	}
+	rpe := *last.RPE
+	step := LoadStep(weight)
 	switch {
-	case last.Reps >= repMax && last.RPE <= targetRPE-1:
+	case reps >= repMax && rpe <= targetRPE-1:
 		out.DeltaKG = step
 		out.Reason = "Llegaste al tope del rango sobrado de RPE: sube el peso."
-	case last.Reps < repMin || last.RPE >= targetRPE+1:
+	case reps < repMin || rpe >= targetRPE+1:
 		out.DeltaKG = -step
 		out.Reason = "Te quedaste corto de reps o pasado de RPE: baja el peso."
 	default:
@@ -355,7 +424,7 @@ func SuggestLoad(last *ExerciseSet, repMin, repMax int, targetRPE float64) LoadS
 	}
 	// Rounded to 2 decimals, not through NormalizeSI: that rounds to one
 	// decimal for SI and would turn a 1.25 kg step into 1.3.
-	out.SuggestedKG = math.Round((last.WeightKG+out.DeltaKG)*100) / 100
+	out.SuggestedKG = math.Round((weight+out.DeltaKG)*100) / 100
 	return out
 }
 
@@ -372,16 +441,20 @@ func Epley1RM(weightKG float64, reps int) float64 {
 // ExerciseSet is one recorded set carrying the date it was performed, so an
 // exercise's progression can be read without walking every session.
 type ExerciseSet struct {
-	Technique string  `json:"technique,omitempty"`
-	Superset  string  `json:"superset,omitempty"`
-	SetID     int64   `json:"set_id"`
-	SessionID int64   `json:"session_id"`
-	Date      string  `json:"date"`
-	WeightKG  float64 `json:"weight_kg"`
-	Reps      int     `json:"reps"`
-	RPE       float64 `json:"rpe"`
-	SI        float64 `json:"si"`
-	Est1RM    float64 `json:"est_1rm"`
+	Technique string   `json:"technique,omitempty"`
+	Superset  string   `json:"superset,omitempty"`
+	SetID     int64    `json:"set_id"`
+	SessionID int64    `json:"session_id"`
+	Date      string   `json:"date"`
+	WeightKG  *float64 `json:"weight_kg"`
+	Reps      *int     `json:"reps"`
+	RPE       *float64 `json:"rpe"`
+	RIR       *float64 `json:"rir"`
+	SetType   string   `json:"set_type"`
+	Notes     string   `json:"notes,omitempty"`
+	SI        float64  `json:"si"`
+	// Est1RM is the Epley estimate, 0 when weight or reps was not recorded.
+	Est1RM float64 `json:"est_1rm"`
 }
 
 // ExerciseHistory is one exercise's recorded sets, newest first, plus its best
@@ -418,10 +491,10 @@ const maxPlanNotesLen = 2000
 // UI's quick-pick chips, so a repeated exercise can be logged without retyping
 // weight, reps, or RPE.
 type ExerciseMemory struct {
-	Exercise string  `json:"exercise"`
-	WeightKG float64 `json:"weight_kg"`
-	Reps     int     `json:"reps"`
-	RPE      float64 `json:"rpe"`
+	Exercise string   `json:"exercise"`
+	WeightKG *float64 `json:"weight_kg"`
+	Reps     *int     `json:"reps"`
+	RPE      *float64 `json:"rpe"`
 }
 type Clock func() time.Time
 

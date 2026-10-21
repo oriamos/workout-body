@@ -108,7 +108,10 @@ func (p pageData) LastSet() *training.Set {
 // IsRecord reports whether a set matches the exercise's all-time best, so it can
 // be badged. Compared with a small tolerance because both sides are rounded.
 func (b ExerciseBlock) IsRecord(s training.Set) bool {
-	return b.BestE1RM > 0 && math.Abs(training.Epley1RM(s.WeightKG, s.Reps)-b.BestE1RM) < 0.05
+	if s.WeightKG == nil || s.Reps == nil || s.SetType == training.SetTypeWarmup || *s.Reps > 12 {
+		return false
+	}
+	return b.BestE1RM > 0 && math.Abs(training.Epley1RM(*s.WeightKG, *s.Reps)-b.BestE1RM) < 0.05
 }
 
 func New(service *training.Service, clock training.Clock, basePath string) (*Server, error) {
@@ -259,8 +262,8 @@ func (s *Server) addSet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _, err = s.service.AddSet(r.Context(), training.AddSetInput{
-			SessionID: session.ID, Exercise: exercise, WeightKG: weight,
-			Reps: reps, RPE: rpe, Technique: technique,
+			SessionID: session.ID, Exercise: exercise, WeightKG: &weight,
+			Reps: &reps, RPE: &rpe, Technique: technique,
 		})
 		switch {
 		case errors.Is(err, training.ErrValidation):
@@ -334,7 +337,7 @@ func (s *Server) deleteSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	message := ""
-	switch _, _, _, err := s.service.DeleteSet(r.Context(), id); {
+	switch _, _, _, err := s.service.DeleteSet(r.Context(), id, nil); {
 	case errors.Is(err, training.ErrNotFound):
 		message = "Esa serie ya no existe."
 	case errors.Is(err, training.ErrValidation):
@@ -866,15 +869,8 @@ func (s *Server) decorate(ctx context.Context, data *pageData) error {
 // ensureToday finds today's session or creates it. Creating lazily on the first
 // set means opening the app never leaves behind an empty session.
 func (s *Server) ensureToday(ctx context.Context) (training.Session, error) {
-	today := s.todayDate()
-	sessions, err := s.service.ListSessions(ctx, training.ListFilter{From: today, To: today, Limit: 1})
-	if err != nil {
-		return training.Session{}, err
-	}
-	if len(sessions) > 0 {
-		return training.Session{ID: sessions[0].ID, Date: sessions[0].Date}, nil
-	}
-	return s.service.StartSession(ctx, today)
+	w, _, err := s.service.EnsureWorkout(ctx, s.todayDate())
+	return w, err
 }
 
 // infoFor gathers what the entry form shows about one exercise: last time's
@@ -917,7 +913,7 @@ func (s *Server) infoFor(ctx context.Context, name, today string) (ExerciseInfo,
 	return entry, nil
 }
 
-func (s *Server) todayDate() string { return s.clock().Format("2006-01-02") }
+func (s *Server) todayDate() string { return s.service.Today() }
 
 func (s *Server) render(w http.ResponseWriter, name string, data pageData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -944,6 +940,22 @@ func cacheStatic(next http.Handler) http.Handler {
 }
 
 // formatNumber trims trailing zeros so 36.0 renders as "36" and 2.5 stays "2.5".
-func formatNumber(v float64) string {
-	return strconv.FormatFloat(v, 'f', -1, 64)
+// formatNumber renders a number for templates. Nullable values (a set whose
+// weight was never recorded) render as empty rather than as 0.
+func formatNumber(v any) string {
+	switch n := v.(type) {
+	case float64:
+		return strconv.FormatFloat(n, 'f', -1, 64)
+	case *float64:
+		if n != nil {
+			return strconv.FormatFloat(*n, 'f', -1, 64)
+		}
+	case int:
+		return strconv.Itoa(n)
+	case *int:
+		if n != nil {
+			return strconv.Itoa(*n)
+		}
+	}
+	return ""
 }

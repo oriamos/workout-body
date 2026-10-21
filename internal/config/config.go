@@ -3,10 +3,16 @@ package config
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+	_ "time/tzdata" // embedded zone database: distroless images ship none
 )
+
+// DefaultTimezone decides which calendar date a workout belongs to.
+const DefaultTimezone = "Asia/Jerusalem"
 
 type Config struct {
 	Addr, DBPath, Token string
@@ -14,6 +20,10 @@ type Config struct {
 	// WebBasePath mounts the PWA under a secret, unguessable prefix. Empty
 	// disables the web UI entirely, so it is never exposed by accident.
 	WebBasePath string
+	// Timezone is the IANA zone used to resolve "today" and to date workouts.
+	Timezone string
+	// Location is Timezone, loaded.
+	Location *time.Location
 }
 
 func Load(addr string) (Config, error) {
@@ -37,7 +47,15 @@ func Load(addr string) (Config, error) {
 	if token == "" && !disabled {
 		return Config{}, errors.New("MCP_BEARER_TOKEN is required unless MCP_AUTH_DISABLED=1")
 	}
-	return Config{Addr: addr, DBPath: db, Token: token, AuthDisabled: disabled, WebBasePath: webBase}, nil
+	tz := strings.TrimSpace(os.Getenv("WORKOUT_TIMEZONE"))
+	if tz == "" {
+		tz = DefaultTimezone
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return Config{}, fmt.Errorf("WORKOUT_TIMEZONE %q is not a valid IANA timezone (for example Asia/Jerusalem): %w", tz, err)
+	}
+	return Config{Addr: addr, DBPath: db, Token: token, AuthDisabled: disabled, WebBasePath: webBase, Timezone: tz, Location: loc}, nil
 }
 
 // normalizeBasePath accepts "", "app", "/app" or "/app/" and returns "" or

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,45 +24,87 @@ func CalculateSI(rpe float64) float64 {
 type Service struct {
 	store Store
 	clock Clock
+	loc   *time.Location
 }
 
 func NewService(store Store, clock Clock) *Service { return &Service{store: store, clock: clock} }
+
+// WithLocation sets the timezone that decides which calendar date "today" is.
+// Without it the clock's own location is used.
+func (s *Service) WithLocation(loc *time.Location) *Service {
+	s.loc = loc
+	return s
+}
+
+// Location is the timezone used to resolve local dates.
+func (s *Service) Location() *time.Location {
+	if s.loc != nil {
+		return s.loc
+	}
+	return s.clock().Location()
+}
+
+// Today is the current local calendar date (YYYY-MM-DD) in the configured
+// timezone, never the server's UTC date.
+func (s *Service) Today() string { return s.clock().In(s.Location()).Format("2006-01-02") }
+
+// ResolveDate returns date if it is a valid YYYY-MM-DD calendar date, or today
+// when date is empty.
+func (s *Service) ResolveDate(date string) (string, error) {
+	date = strings.TrimSpace(date)
+	if date == "" {
+		return s.Today(), nil
+	}
+	if !validDate(date) {
+		return "", invalid("date", "%q is not a valid calendar date; use YYYY-MM-DD", date)
+	}
+	return date, nil
+}
 
 func (s *Service) StartSession(ctx context.Context, date string) (Session, error) {
 	return s.StartPlannedSession(ctx, date, 0)
 }
 
-// StartPlannedSession begins a session optionally following a plan. planID 0
-// means an unplanned, free-form session.
+// StartPlannedSession returns the workout for date, creating it if needed, and
+// optionally makes it follow a plan. There is only ever one workout per local
+// date, so starting a date that already has one returns it. planID 0 means no
+// plan. An existing workout that already follows a different plan is a
+// conflict rather than being silently re-planned.
 func (s *Service) StartPlannedSession(ctx context.Context, date string, planID int64) (Session, error) {
-	if date == "" {
-		date = s.clock().In(s.clock().Location()).Format("2006-01-02")
-	}
-	if _, err := time.Parse("2006-01-02", date); err != nil {
-		return Session{}, ErrValidation
+	date, err := s.ResolveDate(date)
+	if err != nil {
+		return Session{}, err
 	}
 	if planID < 0 {
-		return Session{}, ErrValidation
+		return Session{}, invalid("plan_id", "must be positive")
 	}
-	return s.store.Start(ctx, Session{Date: date, PlanID: planID})
+	if planID > 0 {
+		if _, err := s.store.GetPlan(ctx, planID); err != nil {
+			return Session{}, err
+		}
+	}
+	w, _, err := s.store.GetOrCreateWorkout(ctx, date)
+	if err != nil {
+		return Session{}, err
+	}
+	if planID > 0 && w.PlanID != planID {
+		if w.PlanID != 0 {
+			return Session{}, fmt.Errorf("%w: workout %s already follows plan %d (%s)", ErrConflict, date, w.PlanID, w.PlanName)
+		}
+		if err := s.store.AttachPlan(ctx, w.ID, planID); err != nil {
+			return Session{}, err
+		}
+		return s.store.GetSession(ctx, w.ID)
+	}
+	return w, nil
 }
 
 // CreatePlan stores a reusable workout template. Exercise names are normalized
 // exactly as AddSet normalizes them, so a plan item always matches the sets
 // logged against it.
 func (s *Service) CreatePlan(ctx context.Context, p Plan) (Plan, error) {
-	p.Name = strings.TrimSpace(p.Name)
-	if p.Name == "" || len(p.Items) == 0 || len(p.Items) > 40 {
-		return Plan{}, ErrValidation
-	}
-	for i := range p.Items {
-		if err := validPlanItem(&p.Items[i]); err != nil {
-			return Plan{}, err
-		}
-	}
-	p.Notes = strings.TrimSpace(p.Notes)
-	if len(p.Notes) > maxPlanNotesLen {
-		return Plan{}, ErrValidation
+	if err := validatePlan(&p); err != nil {
+		return Plan{}, err
 	}
 	return s.store.CreatePlan(ctx, p)
 }
@@ -106,22 +149,81 @@ func (s *Service) UpdatePlan(ctx context.Context, id int64, p PlanPatch) error {
 // validPlanItem holds the rules a prescription must satisfy, shared by plan
 // creation, plan editing and in-session adjustments so none can drift.
 func validPlanItem(it *PlanItem) error {
-	it.Exercise = strings.ToLower(strings.TrimSpace(it.Exercise))
+	return issues(planItemIssues(it, ""))
+}
+
+func planItemIssues(it *PlanItem, path string) []Issue {
+	f := func(name string) string {
+		if path == "" {
+			return name
+		}
+		return path + "." + name
+	}
+	it.Exercise = NormalizeExerciseName(it.Exercise)
 	it.Notes = strings.TrimSpace(it.Notes)
 	it.Superset = normalizeSuperset(it.Superset)
-	if it.Exercise == "" || it.TargetSets <= 0 || it.TargetSets > 20 {
-		return ErrValidation
+	var out []Issue
+	add := func(field, format string, args ...any) {
+		out = append(out, Issue{Field: f(field), Message: fmt.Sprintf(format, args...)})
 	}
-	if it.RepMin < 0 || it.RepMax < 0 || (it.RepMax > 0 && it.RepMin > it.RepMax) {
-		return fmt.Errorf("%w: rep range for %q is inverted", ErrValidation, it.Exercise)
+	if it.Exercise == "" {
+		add("exercise", "is required")
+	} else if tooLong(it.Exercise, maxExerciseLen) {
+		add("exercise", "must be at most %d characters", maxExerciseLen)
 	}
-	if it.TargetRPE != 0 && (it.TargetRPE < 1 || it.TargetRPE > 10) {
-		return ErrValidation
+	if it.TargetSets <= 0 || it.TargetSets > 20 {
+		add("sets", "must be between 1 and 20, got %d", it.TargetSets)
 	}
-	if len(it.Notes) > maxPlanNotesLen {
-		return ErrValidation
+	if it.RepMin < 0 || it.RepMax < 0 || it.RepMin > MaxReps || it.RepMax > MaxReps {
+		add("reps", "rep_min and rep_max must be between 0 and %d (0 means not prescribed)", MaxReps)
+	} else if it.RepMax > 0 && it.RepMin > it.RepMax {
+		add("reps", "rep_min (%d) must not exceed rep_max (%d)", it.RepMin, it.RepMax)
 	}
-	return nil
+	if it.TargetRPE != 0 && (!finite(it.TargetRPE) || it.TargetRPE < 1 || it.TargetRPE > 10) {
+		add("target_rpe", "must be between 1 and 10 (omit it for no target)")
+	}
+	if it.TargetWeightKG != nil && (!finite(*it.TargetWeightKG) || *it.TargetWeightKG < 0 || *it.TargetWeightKG > MaxWeightKG) {
+		add("target_weight_kg", "must be between 0 and %d kg (omit it for no target)", MaxWeightKG)
+	}
+	if it.TargetRIR != nil && (!finite(*it.TargetRIR) || *it.TargetRIR < 0 || *it.TargetRIR > 10) {
+		add("target_rir", "must be between 0 and 10 (omit it for no target)")
+	}
+	if tooLong(it.Notes, maxPlanNotesLen) {
+		add("notes", "must be at most %d characters", maxPlanNotesLen)
+	}
+	if tooLong(it.Superset, maxTechniqueLen) {
+		add("superset", "must be at most %d characters", maxTechniqueLen)
+	}
+	return out
+}
+
+// validatePlan normalizes and checks a whole plan, collecting every problem.
+// Exercises must be unique within a plan.
+func validatePlan(p *Plan) error {
+	p.Name = strings.TrimSpace(p.Name)
+	p.Notes = strings.TrimSpace(p.Notes)
+	var out []Issue
+	if p.Name == "" {
+		out = append(out, Issue{Field: "name", Message: "is required"})
+	} else if tooLong(p.Name, 100) {
+		out = append(out, Issue{Field: "name", Message: "must be at most 100 characters"})
+	}
+	if tooLong(p.Notes, maxPlanNotesLen) {
+		out = append(out, Issue{Field: "notes", Message: fmt.Sprintf("must be at most %d characters", maxPlanNotesLen)})
+	}
+	if len(p.Items) == 0 || len(p.Items) > MaxBatchItems {
+		out = append(out, Issue{Field: "items", Message: fmt.Sprintf("must contain between 1 and %d exercises", MaxBatchItems)})
+	}
+	seen := map[string]int{}
+	for i := range p.Items {
+		out = append(out, planItemIssues(&p.Items[i], fmt.Sprintf("items[%d]", i))...)
+		if first, dup := seen[p.Items[i].Exercise]; dup && p.Items[i].Exercise != "" {
+			out = append(out, Issue{Field: fmt.Sprintf("items[%d].exercise", i),
+				Message: fmt.Sprintf("duplicates items[%d] (%q); list each exercise once and use sets for volume", first, p.Items[i].Exercise)})
+		}
+		seen[p.Items[i].Exercise] = i
+	}
+	return issues(out)
 }
 
 // SetPlanItem adds an exercise to a saved plan or replaces its prescription.
@@ -137,7 +239,7 @@ func (s *Service) SetPlanItem(ctx context.Context, planID int64, it PlanItem) er
 }
 
 func (s *Service) RemovePlanItem(ctx context.Context, planID int64, exercise string) error {
-	exercise = strings.ToLower(strings.TrimSpace(exercise))
+	exercise = s.canon(ctx, exercise)
 	if planID <= 0 || exercise == "" {
 		return ErrValidation
 	}
@@ -146,7 +248,7 @@ func (s *Service) RemovePlanItem(ctx context.Context, planID int64, exercise str
 
 // MovePlanItem shifts an exercise one place up or down in the plan's order.
 func (s *Service) MovePlanItem(ctx context.Context, planID int64, exercise string, delta int) error {
-	exercise = strings.ToLower(strings.TrimSpace(exercise))
+	exercise = s.canon(ctx, exercise)
 	if planID <= 0 || exercise == "" || (delta != 1 && delta != -1) {
 		return ErrValidation
 	}
@@ -175,7 +277,7 @@ func (s *Service) SetSessionItem(ctx context.Context, sessionID int64, it PlanIt
 // AdjustSessionItem changes only what is given: the set count, the rep range,
 // the RPE, or whether the exercise is skipped today.
 func (s *Service) AdjustSessionItem(ctx context.Context, sessionID int64, exercise string, p SessionItemPatch) error {
-	exercise = strings.ToLower(strings.TrimSpace(exercise))
+	exercise = s.canon(ctx, exercise)
 	if sessionID <= 0 || exercise == "" || p.Empty() {
 		return ErrValidation
 	}
@@ -194,14 +296,20 @@ func (s *Service) AdjustSessionItem(ctx context.Context, sessionID int64, exerci
 	if p.TargetRPE != nil && *p.TargetRPE != 0 && (*p.TargetRPE < 1 || *p.TargetRPE > 10) {
 		return ErrValidation
 	}
+	if p.TargetWeightKG != nil && (!finite(*p.TargetWeightKG) || *p.TargetWeightKG < 0 || *p.TargetWeightKG > MaxWeightKG) {
+		return invalid("target_weight_kg", "must be between 0 and %d kg", MaxWeightKG)
+	}
+	if p.TargetRIR != nil && (!finite(*p.TargetRIR) || *p.TargetRIR < 0 || *p.TargetRIR > 10) {
+		return invalid("target_rir", "must be between 0 and 10")
+	}
 	return s.store.PatchSessionItem(ctx, sessionID, exercise, p)
 }
 
 // SwapSessionItem substitutes an exercise in today's session, keeping its
 // prescription. Use it when the planned machine is taken.
 func (s *Service) SwapSessionItem(ctx context.Context, sessionID int64, from, to string) error {
-	from = strings.ToLower(strings.TrimSpace(from))
-	to = strings.ToLower(strings.TrimSpace(to))
+	from = s.canon(ctx, from)
+	to = s.canon(ctx, to)
 	if sessionID <= 0 || from == "" || to == "" || from == to {
 		return ErrValidation
 	}
@@ -211,7 +319,7 @@ func (s *Service) SwapSessionItem(ctx context.Context, sessionID int64, from, to
 // RemoveSessionItem drops an exercise from today's plan. Sets already logged
 // against it are kept and reappear as off-plan work.
 func (s *Service) RemoveSessionItem(ctx context.Context, sessionID int64, exercise string) error {
-	exercise = strings.ToLower(strings.TrimSpace(exercise))
+	exercise = s.canon(ctx, exercise)
 	if sessionID <= 0 || exercise == "" {
 		return ErrValidation
 	}
@@ -242,6 +350,7 @@ func (s *Service) SaveSessionAsPlan(ctx context.Context, sessionID int64, name s
 		plan.Items = append(plan.Items, PlanItem{
 			Exercise: p.Exercise, TargetSets: sets,
 			RepMin: p.RepMin, RepMax: p.RepMax, TargetRPE: p.TargetRPE,
+			TargetWeightKG: p.TargetWeightKG, TargetRIR: p.TargetRIR, Superset: p.Superset, Notes: p.Notes,
 		})
 	}
 	return s.CreatePlan(ctx, plan)
@@ -396,7 +505,7 @@ func (s *Service) Snapshot(ctx context.Context, path string) error {
 // the prescription it currently carries in today's session, falling back to the
 // most recent plan that prescribes it.
 func (s *Service) SuggestLoad(ctx context.Context, exercise string) (LoadSuggestion, error) {
-	exercise = strings.ToLower(strings.TrimSpace(exercise))
+	exercise = s.canon(ctx, exercise)
 	if exercise == "" {
 		return LoadSuggestion{}, ErrValidation
 	}
@@ -422,7 +531,7 @@ func (s *Service) SuggestLoad(ctx context.Context, exercise string) (LoadSuggest
 // prescriptionFor finds the rep range and RPE an exercise is prescribed at,
 // preferring today's session over any saved plan.
 func (s *Service) prescriptionFor(ctx context.Context, exercise string) (int, int, float64) {
-	today := s.clock().Format("2006-01-02")
+	today := s.Today()
 	if sessions, err := s.ListSessions(ctx, ListFilter{From: today, To: today, Limit: 1}); err == nil && len(sessions) > 0 {
 		if progress, err := s.SessionProgress(ctx, sessions[0].ID); err == nil {
 			for _, p := range progress {
@@ -462,66 +571,225 @@ func (s *Service) SessionProgress(ctx context.Context, sessionID int64) ([]PlanP
 	return out, err
 }
 
-// LogSet is the one-call entry path: it finds today's session, creates it if
-// needed, and records count identical sets. Callers never handle a session id,
-// which is what makes conversational logging a single step.
-func (s *Service) LogSet(ctx context.Context, exercise string, weightKG float64, reps int, rpe float64, count int, technique string) (Session, []Set, error) {
+// LogSet is the one-call entry path: it finds the workout for date (today when
+// empty), creates it if needed, and records count copies of the set. Callers
+// never handle a workout id, which is what makes conversational logging a
+// single step. It is a convenience over LogSets.
+func (s *Service) LogSet(ctx context.Context, date string, in AddSetInput, count int, key string) (BatchResult, error) {
 	if count <= 0 {
 		count = 1
 	}
 	if count > 20 {
-		return Session{}, nil, ErrValidation
+		return BatchResult{}, invalid("count", "must be between 1 and 20, got %d", count)
 	}
-	today := s.clock().Format("2006-01-02")
-	existing, err := s.ListSessions(ctx, ListFilter{From: today, To: today, Limit: 1})
-	if err != nil {
-		return Session{}, nil, err
+	sets := make([]AddSetInput, count)
+	for i := range sets {
+		sets[i] = in
 	}
-	var session Session
-	if len(existing) > 0 {
-		session = Session{ID: existing[0].ID, Date: existing[0].Date, PlanName: existing[0].PlanName}
-	} else {
-		// Validate before creating, so a bad call never leaves an empty session
-		// behind as a side effect of a typo.
-		if !validSetFields(exercise, weightKG, reps, rpe) {
-			return Session{}, nil, ErrValidation
-		}
-		if session, err = s.StartSession(ctx, today); err != nil {
-			return Session{}, nil, err
-		}
-	}
-	var out []Set
-	for range count {
-		set, total, err := s.AddSet(ctx, AddSetInput{
-			SessionID: session.ID, Exercise: exercise, WeightKG: weightKG,
-			Reps: reps, RPE: rpe, Technique: technique,
-		})
-		if err != nil {
-			return session, out, err
-		}
-		session.TotalSI = total
-		out = append(out, set)
-	}
-	return session, out, nil
+	return s.LogSets(ctx, BatchInput{Date: date, Sets: sets, IdempotencyKey: key})
 }
 
-// validSetFields holds the rules a recorded set must satisfy, shared by every
-// entry path so none of them can drift.
-func validSetFields(exercise string, weightKG float64, reps int, rpe float64) bool {
-	return strings.TrimSpace(exercise) != "" && weightKG > 0 && reps > 0 && rpe >= 1 && rpe <= 10
-}
-
-func (s *Service) AddSet(ctx context.Context, in AddSetInput) (Set, float64, error) {
-	in.Exercise = strings.ToLower(strings.TrimSpace(in.Exercise))
+// normalizeSet validates and normalizes one performed set. path prefixes the
+// reported field names, e.g. "sets[2]".
+func normalizeSet(in *AddSetInput, path string) []Issue {
+	f := func(name string) string {
+		if path == "" {
+			return name
+		}
+		return path + "." + name
+	}
+	var out []Issue
+	add := func(field, format string, args ...any) {
+		out = append(out, Issue{Field: f(field), Message: fmt.Sprintf(format, args...)})
+	}
+	in.Exercise = NormalizeExerciseName(in.Exercise)
 	in.Technique = normalizeTechnique(in.Technique)
 	in.Superset = normalizeSuperset(in.Superset)
-	if in.SessionID <= 0 || !validSetFields(in.Exercise, in.WeightKG, in.Reps, in.RPE) {
-		return Set{}, 0, ErrValidation
+	in.Notes = strings.TrimSpace(in.Notes)
+	in.SetType = strings.ToLower(strings.TrimSpace(in.SetType))
+	if in.SetType == "" {
+		in.SetType = SetTypeWorking
 	}
-	if len(in.Technique) > maxTechniqueLen || len(in.Superset) > maxTechniqueLen {
-		return Set{}, 0, ErrValidation
+	if in.Exercise == "" && in.ExerciseID <= 0 {
+		add("exercise", "is required (a name, or exercise_id of an existing exercise)")
 	}
-	if in.Superset == "" {
+	if tooLong(in.Exercise, maxExerciseLen) {
+		add("exercise", "must be at most %d characters", maxExerciseLen)
+	}
+	if in.WeightKG != nil && (!finite(*in.WeightKG) || *in.WeightKG < 0 || *in.WeightKG > MaxWeightKG) {
+		add("weight_kg", "must be between 0 and %d kg; omit it if the weight is unknown (0 means an explicit zero load)", MaxWeightKG)
+	}
+	if in.Reps != nil && (*in.Reps < 1 || *in.Reps > MaxReps) {
+		add("reps", "must be a whole number between 1 and %d; omit it if unknown", MaxReps)
+	}
+	if in.RPE != nil && (!finite(*in.RPE) || *in.RPE < 1 || *in.RPE > 10) {
+		add("rpe", "must be between 1 and 10; omit it if unknown")
+	}
+	if in.RIR != nil && (!finite(*in.RIR) || *in.RIR < 0 || *in.RIR > 10) {
+		add("rir", "must be between 0 and 10; omit it if unknown")
+	}
+	if !validSetType(in.SetType) {
+		add("set_type", "%q is not valid; use one of %s", in.SetType, strings.Join(SetTypes, ", "))
+	}
+	if tooLong(in.Notes, maxSetNotes) {
+		add("notes", "must be at most %d characters", maxSetNotes)
+	}
+	if tooLong(in.Technique, maxTechniqueLen) {
+		add("technique", "must be at most %d characters", maxTechniqueLen)
+	}
+	if tooLong(in.Superset, maxTechniqueLen) {
+		add("superset", "must be at most %d characters", maxTechniqueLen)
+	}
+	return out
+}
+
+// LogSets is the primary write path for incremental logging. In one
+// transaction it finds or creates the workout for the date, appends the given
+// performed sets, merges the given prescriptions, and records the idempotency
+// key. Nothing is applied if any part is invalid.
+//
+// Prescriptions describe what is planned and never create completed sets.
+func (s *Service) LogSets(ctx context.Context, in BatchInput) (BatchResult, error) {
+	date, err := s.ResolveDate(in.Date)
+	if err != nil {
+		return BatchResult{}, err
+	}
+	in.Date = date
+	var iss []Issue
+	if in.PlanID < 0 {
+		iss = append(iss, Issue{Field: "plan_id", Message: "must be positive"})
+	}
+	if len(in.Sets) == 0 && len(in.Prescriptions) == 0 {
+		iss = append(iss, Issue{Field: "sets", Message: "provide at least one set or prescription"})
+	}
+	if len(in.Sets) > MaxBatchSets {
+		iss = append(iss, Issue{Field: "sets", Message: fmt.Sprintf("at most %d sets per request", MaxBatchSets)})
+	}
+	if len(in.Prescriptions) > MaxBatchItems {
+		iss = append(iss, Issue{Field: "prescriptions", Message: fmt.Sprintf("at most %d prescriptions per request", MaxBatchItems)})
+	}
+	if len(in.IdempotencyKey) > MaxKeyLen {
+		iss = append(iss, Issue{Field: "idempotency_key", Message: fmt.Sprintf("must be at most %d characters", MaxKeyLen)})
+	}
+	if len(in.Sets) > 0 && date > s.Today() {
+		iss = append(iss, Issue{Field: "date", Message: fmt.Sprintf("%s is in the future; sets can only be logged for today or earlier (today is %s)", date, s.Today())})
+	}
+	sets := make([]AddSetInput, len(in.Sets))
+	copy(sets, in.Sets)
+	for i := range sets {
+		iss = append(iss, normalizeSet(&sets[i], fmt.Sprintf("sets[%d]", i))...)
+	}
+	in.Sets = sets
+	pres := make([]PlanItem, len(in.Prescriptions))
+	copy(pres, in.Prescriptions)
+	seen := map[string]int{}
+	for i := range pres {
+		iss = append(iss, planItemIssues(&pres[i], fmt.Sprintf("prescriptions[%d]", i))...)
+		if first, dup := seen[pres[i].Exercise]; dup && pres[i].Exercise != "" {
+			iss = append(iss, Issue{Field: fmt.Sprintf("prescriptions[%d].exercise", i), Message: fmt.Sprintf("duplicates prescriptions[%d]", first)})
+		}
+		seen[pres[i].Exercise] = i
+	}
+	in.Prescriptions = pres
+	if err := issues(iss); err != nil {
+		return BatchResult{}, err
+	}
+	res, err := s.store.LogBatch(ctx, in)
+	if err != nil {
+		return BatchResult{}, err
+	}
+	s.annotateNew(ctx, res.NewExercises)
+	if res.Workout.ID > 0 {
+		if res.Workout, err = s.decorate(ctx, res.Workout); err != nil {
+			return res, err
+		}
+	}
+	return res, nil
+}
+
+// annotateNew fills in near-miss names for exercises a write just created.
+func (s *Service) annotateNew(ctx context.Context, created []NewExercise) {
+	if len(created) == 0 {
+		return
+	}
+	all, err := s.store.Exercises(ctx)
+	if err != nil {
+		return
+	}
+	var names []string
+	for _, e := range all {
+		names = append(names, e.Name)
+		names = append(names, e.Aliases...)
+	}
+	for i := range created {
+		created[i].Similar = SimilarNames(created[i].Name, names)
+	}
+}
+
+// decorate adds derived read-only data to a workout: per-exercise set numbers
+// and planned-versus-completed progress.
+func (s *Service) decorate(ctx context.Context, w Session) (Session, error) {
+	w = withSetNumbers(w)
+	progress, err := s.store.SessionProgress(ctx, w.ID)
+	if err != nil {
+		return w, err
+	}
+	if progress == nil {
+		progress = []PlanProgress{}
+	}
+	w.Progress = progress
+	return w, nil
+}
+
+func withSetNumbers(w Session) Session {
+	n := map[int64]int{}
+	for i := range w.Sets {
+		n[w.Sets[i].ExerciseID]++
+		w.Sets[i].SetNumber = n[w.Sets[i].ExerciseID]
+	}
+	return w
+}
+
+// GetWorkout returns the workout for a date (today when empty) with its sets
+// and planned-versus-completed progress. It does not create anything: a date
+// without a workout is ErrNotFound.
+func (s *Service) GetWorkout(ctx context.Context, date string) (Session, error) {
+	date, err := s.ResolveDate(date)
+	if err != nil {
+		return Session{}, err
+	}
+	w, err := s.store.WorkoutByDate(ctx, date)
+	if err != nil {
+		return Session{}, err
+	}
+	return s.decorate(ctx, w)
+}
+
+// EnsureWorkout is get-or-create by local date. It is safe to call
+// concurrently; all callers for one date receive the same workout.
+func (s *Service) EnsureWorkout(ctx context.Context, date string) (Session, bool, error) {
+	date, err := s.ResolveDate(date)
+	if err != nil {
+		return Session{}, false, err
+	}
+	w, created, err := s.store.GetOrCreateWorkout(ctx, date)
+	if err != nil {
+		return w, created, err
+	}
+	w, err = s.decorate(ctx, w)
+	return w, created, err
+}
+
+// AddSet records one set in an existing workout, by id. Prefer LogSets for
+// conversational logging.
+func (s *Service) AddSet(ctx context.Context, in AddSetInput) (Set, float64, error) {
+	if in.SessionID <= 0 {
+		return Set{}, 0, invalid("session_id", "must be positive")
+	}
+	if err := issues(normalizeSet(&in, "")); err != nil {
+		return Set{}, 0, err
+	}
+	if in.Superset == "" && in.Exercise != "" {
 		// Derive the round from the session's plan, so logging a superset set
 		// never costs an extra field.
 		label, err := s.store.SupersetFor(ctx, in.SessionID, in.Exercise)
@@ -536,7 +804,7 @@ func (s *Service) AddSet(ctx context.Context, in AddSetInput) (Set, float64, err
 // SetExerciseNote stores a persistent setup reminder for an exercise. An empty
 // note removes it.
 func (s *Service) SetExerciseNote(ctx context.Context, exercise, note string) error {
-	exercise = strings.ToLower(strings.TrimSpace(exercise))
+	exercise = s.canon(ctx, exercise)
 	note = strings.TrimSpace(note)
 	if exercise == "" || len(note) > maxNoteLen {
 		return ErrValidation
@@ -563,28 +831,97 @@ func normalizeTechnique(v string) string {
 func normalizeSuperset(v string) string {
 	return strings.Join(strings.Fields(strings.ToUpper(strings.TrimSpace(v))), " ")
 }
+
+// UpdateSet changes only the fields given on one set, addressed by its stable
+// id. Set a Clear* flag to turn a recorded value back into "not recorded".
 func (s *Service) UpdateSet(ctx context.Context, id int64, p SetPatch) (Set, float64, error) {
-	if id <= 0 || p.Empty() || (p.Exercise != nil && strings.TrimSpace(*p.Exercise) == "") || (p.WeightKG != nil && *p.WeightKG <= 0) || (p.Reps != nil && *p.Reps <= 0) || (p.RPE != nil && (*p.RPE < 1 || *p.RPE > 10)) {
-		return Set{}, 0, ErrValidation
+	if id <= 0 {
+		return Set{}, 0, invalid("set_id", "must be positive")
 	}
+	var iss []Issue
+	empty := p.Exercise == nil && p.ExerciseID == nil && p.WeightKG == nil && p.Reps == nil && p.RPE == nil && p.RIR == nil &&
+		p.SetType == nil && p.Notes == nil && p.Technique == nil && !p.ClearWeight && !p.ClearReps && !p.ClearRPE && !p.ClearRIR
+	if empty {
+		iss = append(iss, Issue{Message: "provide at least one field to change"})
+	}
+	conflict := func(set *bool, flag bool, name string) {
+		if set != nil && *set && flag {
+			iss = append(iss, Issue{Field: name, Message: "cannot both set a value and clear it"})
+		}
+	}
+	t, f := true, false
+	has := func(b bool) *bool {
+		if b {
+			return &t
+		}
+		return &f
+	}
+	conflict(has(p.WeightKG != nil), p.ClearWeight, "weight_kg")
+	conflict(has(p.Reps != nil), p.ClearReps, "reps")
+	conflict(has(p.RPE != nil), p.ClearRPE, "rpe")
+	conflict(has(p.RIR != nil), p.ClearRIR, "rir")
 	if p.Exercise != nil {
-		v := strings.ToLower(strings.TrimSpace(*p.Exercise))
+		v := NormalizeExerciseName(*p.Exercise)
+		if v == "" || tooLong(v, maxExerciseLen) {
+			iss = append(iss, Issue{Field: "exercise", Message: fmt.Sprintf("must be 1-%d characters", maxExerciseLen)})
+		}
 		p.Exercise = &v
+	}
+	if p.WeightKG != nil && (!finite(*p.WeightKG) || *p.WeightKG < 0 || *p.WeightKG > MaxWeightKG) {
+		iss = append(iss, Issue{Field: "weight_kg", Message: fmt.Sprintf("must be between 0 and %d kg", MaxWeightKG)})
+	}
+	if p.Reps != nil && (*p.Reps < 1 || *p.Reps > MaxReps) {
+		iss = append(iss, Issue{Field: "reps", Message: fmt.Sprintf("must be a whole number between 1 and %d", MaxReps)})
+	}
+	if p.RPE != nil && (!finite(*p.RPE) || *p.RPE < 1 || *p.RPE > 10) {
+		iss = append(iss, Issue{Field: "rpe", Message: "must be between 1 and 10"})
+	}
+	if p.RIR != nil && (!finite(*p.RIR) || *p.RIR < 0 || *p.RIR > 10) {
+		iss = append(iss, Issue{Field: "rir", Message: "must be between 0 and 10"})
+	}
+	if p.SetType != nil {
+		v := strings.ToLower(strings.TrimSpace(*p.SetType))
+		if !validSetType(v) {
+			iss = append(iss, Issue{Field: "set_type", Message: fmt.Sprintf("%q is not valid; use one of %s", v, strings.Join(SetTypes, ", "))})
+		}
+		p.SetType = &v
+	}
+	if p.Notes != nil {
+		v := strings.TrimSpace(*p.Notes)
+		if tooLong(v, maxSetNotes) {
+			iss = append(iss, Issue{Field: "notes", Message: fmt.Sprintf("must be at most %d characters", maxSetNotes)})
+		}
+		p.Notes = &v
 	}
 	if p.Technique != nil {
 		v := normalizeTechnique(*p.Technique)
 		if len(v) > maxTechniqueLen {
-			return Set{}, 0, ErrValidation
+			iss = append(iss, Issue{Field: "technique", Message: fmt.Sprintf("must be at most %d characters", maxTechniqueLen)})
 		}
 		p.Technique = &v
 	}
+	if err := issues(iss); err != nil {
+		return Set{}, 0, err
+	}
 	return s.store.UpdateSet(ctx, id, p)
 }
-func (s *Service) DeleteSet(ctx context.Context, id int64) (int64, float64, int, error) {
+
+// DeleteSet removes one set by id. expectedRevision, when non-nil, must match
+// the set's current revision. Remaining sets keep their ids; positions are
+// compacted.
+func (s *Service) DeleteSet(ctx context.Context, id int64, expectedRevision *int) (int64, float64, int, error) {
 	if id <= 0 {
-		return 0, 0, 0, ErrValidation
+		return 0, 0, 0, invalid("set_id", "must be positive")
 	}
-	return s.store.DeleteSet(ctx, id)
+	return s.store.DeleteSet(ctx, id, expectedRevision)
+}
+
+// GetSet returns one set by id.
+func (s *Service) GetSet(ctx context.Context, id int64) (Set, error) {
+	if id <= 0 {
+		return Set{}, invalid("set_id", "must be positive")
+	}
+	return s.store.GetSet(ctx, id)
 }
 func (s *Service) GetSession(ctx context.Context, id int64) (Session, error) {
 	if id <= 0 {
@@ -637,7 +974,7 @@ func (s *Service) DeleteSession(ctx context.Context, id int64) (int, error) {
 // ExerciseHistory returns one exercise's sets newest first, plus its best set
 // by estimated 1RM.
 func (s *Service) ExerciseHistory(ctx context.Context, exercise string, limit int) (ExerciseHistory, error) {
-	exercise = strings.ToLower(strings.TrimSpace(exercise))
+	exercise = s.canon(ctx, exercise)
 	if exercise == "" || limit < 0 || limit > 500 {
 		return ExerciseHistory{}, ErrValidation
 	}
@@ -670,7 +1007,7 @@ func (s *Service) WeeklyVolume(ctx context.Context, f ListFilter) ([]WeeklyVolum
 // normalized the same way AddSet normalizes it, so the catalogue key always
 // matches what is stored on sets.
 func (s *Service) SetExerciseGroup(ctx context.Context, exercise, group string) error {
-	exercise = strings.ToLower(strings.TrimSpace(exercise))
+	exercise = s.canon(ctx, exercise)
 	group = strings.ToLower(strings.TrimSpace(group))
 	if exercise == "" || !ValidMuscleGroup(group) {
 		return ErrValidation
@@ -702,3 +1039,20 @@ func (s *Service) VolumeByGroup(ctx context.Context, f ListFilter) ([]GroupVolum
 }
 
 func validDate(v string) bool { _, err := time.Parse("2006-01-02", v); return err == nil }
+
+// canon normalizes an exercise name and resolves an alias to its canonical
+// name, so every lookup behaves the same whichever spelling the caller used.
+// An unknown name is returned normalized; reads then simply find nothing.
+func (s *Service) canon(ctx context.Context, name string) string {
+	name = NormalizeExerciseName(name)
+	if name == "" {
+		return name
+	}
+	if _, err := strconv.Atoi(name); err == nil {
+		return name // GetExercise would read a bare number as an id
+	}
+	if ex, err := s.store.GetExercise(ctx, name); err == nil {
+		return ex.Name
+	}
+	return name
+}
