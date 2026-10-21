@@ -54,8 +54,7 @@ run against this plugin (see verification status).
 ## Stdio alternative (local, no network)
 
 If the binary and the database are on the same machine as the client, the
-server can speak MCP over stdin/stdout instead of HTTP (`--stdio`; the flag is
-wired in `cmd/training-mcp`). Replace the entry in `.mcp.json` with:
+server can speak MCP over stdin/stdout instead of HTTP (`training-mcp --stdio`). Replace the entry in `.mcp.json` with:
 
 ```json
 {
@@ -77,10 +76,11 @@ wired in `cmd/training-mcp`). Replace the entry in `.mcp.json` with:
   `~/.local/share/training-mcp/training.db`).
 - `WORKOUT_TIMEZONE` is the IANA timezone that decides which calendar date
   "today" is (default `Asia/Jerusalem`). `get_workout` reports it.
-- If the build you run still validates `MCP_BEARER_TOKEN` at startup in stdio
-  mode, set it to any value in `env`; stdio itself does not use it.
-- Do not point a stdio instance and a running HTTP server at the same database
-  file unless you have confirmed that is safe for your deployment.
+- No `MCP_BEARER_TOKEN` is needed in stdio mode: the client launches the
+  process over a pipe, so there is no network endpoint to protect.
+- Prefer one process per database file. SQLite's locking (WAL, 10 s busy
+  timeout) is meant to cope with a second process on a local disk, but running
+  a stdio instance beside the HTTP server on the same file is not tested.
 
 ## Clients without skills
 

@@ -3,5 +3,14 @@
   "version": "0.1.0",
   "description": "Log workouts conversationally against a personal workout-body (training-mcp engine v2) MCP server: incremental set logging, corrections by set id, plans and progress.",
   "license": "MIT",
-  "keywords": ["workout", "training", "fitness", "mcp", "logging"]
+  "keywords": [
+    "workout",
+    "training",
+    "fitness",
+    "mcp",
+    "logging"
+  ],
+  "author": {
+    "name": "workout-body contributors"
+  }
 }

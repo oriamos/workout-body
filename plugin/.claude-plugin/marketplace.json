@@ -1,6 +1,9 @@
 {
   "name": "workout-body-local",
-  "owner": { "name": "workout-body" },
+  "description": "Local marketplace for the workout-body Claude Code plugin.",
+  "owner": {
+    "name": "workout-body"
+  },
   "plugins": [
     {
       "name": "workout-body",

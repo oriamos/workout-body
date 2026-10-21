@@ -37,24 +37,41 @@ against the real service on a temporary SQLite database:
   through the service with synthetic bytes; the HTTP upload endpoints belong
   to the API server and are not exercised by these tests.
 
-### Not verified
+### Checked against the documentation, but not run
 
-- **Claude Code plugin installation.** `plugin.json`, `.mcp.json` (including
-  `${VAR}` expansion in the URL and header) and the marketplace file follow the
-  documented formats but have not been installed or run in Claude Code.
-- **Skill triggering.** Whether Claude Code loads `workout-logging` at the
-  right moments has not been evaluated.
-- **Claude Desktop.** Not tested. Local stdio configuration is the likely
-  route, but it has not been tried.
-- **Claude.ai custom connectors and ChatGPT connectors/apps.** Not tested, and
-  likely incompatible as-is: these typically require a public HTTPS endpoint
-  with OAuth, or no authentication at all. This server only accepts a static
-  bearer token, which such connectors may have no field for. Running it with
-  authentication disabled on a public URL would expose the whole log to anyone
-  who finds it; do not do that.
-- **Other MCP clients.** Any client that can send a custom `Authorization`
-  header over Streamable HTTP, or launch a stdio command, should work in
-  principle; none has been tested.
+A review of the plugin files against the current Claude Code documentation found
+them valid (not an installation):
+
+- layout: `.claude-plugin/plugin.json` plus `.mcp.json` and `skills/` at the
+  plugin root; only `name` is required in the manifest;
+- `.mcp.json` uses the `{"mcpServers": {...}}` wrapper, `"type": "http"` and
+  `headers`; `${VAR}` expansion is documented for `url` and `headers`;
+- the marketplace schema (relative `./workout-body` resolves from the directory
+  that contains `.claude-plugin/`);
+- Claude Code supports a static `Authorization` header without OAuth.
+
+Caveat from that review: if `WORKOUT_MCP_URL` or `WORKOUT_MCP_TOKEN` is **not
+exported**, the config still loads and a literal `Bearer ${WORKOUT_MCP_TOKEN}`
+is sent, which the server rejects with 401. `claude mcp list` shows a warning.
+Run `claude plugin validate ./plugin` and `claude plugin validate
+./plugin/workout-body` to check the files.
+
+### Not verified (never run)
+
+- **Installing the plugin in Claude Code** and whether the `workout-logging`
+  skill triggers at the right moments.
+- **Claude.ai and Claude Desktop custom connectors.** Anthropic's connector
+  documentation describes custom *request headers* for fixed credentials such as
+  a bearer token, so this server's static token is a documented fit. But the
+  connector is added in claude.ai settings (not through this plugin's
+  `.mcp.json`), it is brokered from Anthropic's cloud so it needs a **publicly
+  reachable HTTPS URL**, and the header option may not be available on every
+  account. None of this has been tried against this server.
+- **ChatGPT connectors/apps** and **other MCP clients.** Untested. Any client
+  that can send a custom `Authorization` header over Streamable HTTP, or launch
+  a stdio command, should work in principle.
+- Exposing the server publicly. Never run it with authentication disabled on a
+  public URL: that would expose the whole training log to anyone who finds it.
 
 `assistant-instructions.md` is client-neutral text; pasting it into a client
 does not by itself make that client able to reach the server.
