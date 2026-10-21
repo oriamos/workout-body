@@ -1,0 +1,15 @@
+import { chromium } from 'playwright-core';
+const [,, path, name, w='390', h='844', full='0'] = process.argv;
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
+const ctx = await b.newContext({ viewport: { width: +w, height: +h }, deviceScaleFactor: 2, hasTouch: +w < 700 });
+const p = await ctx.newPage();
+const errs = [];
+p.on('console', m => { if (m.type()==='error') errs.push(m.text()); });
+p.on('pageerror', e => errs.push(String(e)));
+await p.goto('http://127.0.0.1:5173/' + path);
+await p.waitForTimeout(1200);
+const dir = '/tmp/claude-0/-home-user-workout-body/c32c6fae-56c9-5df3-9828-a84f6c6b85a2/scratchpad/shots/';
+await p.screenshot({ path: dir + name + '.png', fullPage: full==='1' });
+const ov = await p.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+console.log(name, JSON.stringify(ov), errs.slice(0,5).join(' | '));
+await b.close();
