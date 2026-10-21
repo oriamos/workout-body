@@ -34,3 +34,17 @@ and the documentation set under `docs/`.
 licenses were not included) and `skills-lock.json`, so that nothing of
 unclear license is redistributed. The Dokploy-specific backup/cron scripts were
 replaced by a generic `backup` subcommand.
+
+## Web UI and design skills (merged from `main`)
+
+The web UI in `web/` (React + Vite, Hebrew RTL) was developed on `main` and
+merged into this branch with its history; it uses React, React DOM, Vite and the
+Heebo font (`@fontsource-variable/heebo`, SIL Open Font License), each under its
+own license via npm.
+
+`.claude/skills/` contains third-party design skills added on `main`
+(Impeccable by pbakaus, declared Apache-2.0 in its SKILL.md; Emil Kowalski's
+design-engineering skills including `apple-design`). Their license files are not
+included in this repository. **Before publishing the repository, confirm each
+skill's license and add the required license/NOTICE files, or remove the
+skills** — they are developer tooling, not part of the shipped software.
