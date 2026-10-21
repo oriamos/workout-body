@@ -163,6 +163,26 @@ func (s *Server) getWorkout(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// ensureWorkout is get-or-create for a date: 201 when this call created the
+// workout, 200 when it already existed. Idempotent, so no precondition.
+func (s *Server) ensureWorkout(w http.ResponseWriter, r *http.Request) error {
+	date, err := s.date("date", r.PathValue("date"))
+	if err != nil {
+		return err
+	}
+	wk, created, err := s.svc.EnsureWorkout(r.Context(), date)
+	if err != nil {
+		return err
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	setETag(w, wk.Revision)
+	writeJSON(w, status, toWorkout(wk))
+	return nil
+}
+
 func (s *Server) logSets(w http.ResponseWriter, r *http.Request) error {
 	date, err := s.date("date", r.PathValue("date"))
 	if err != nil {
@@ -256,7 +276,7 @@ func (s *Server) prescriptionTarget(r *http.Request) (training.Session, string, 
 }
 
 var prescriptionPatchKeys = map[string]bool{"target_sets": true, "rep_min": true, "rep_max": true, "target_rpe": true,
-	"target_weight_kg": true, "target_rir": true, "skipped": true}
+	"target_weight_kg": true, "target_rir": true, "skipped": true, "notes": true}
 
 func (s *Server) patchPrescription(w http.ResponseWriter, r *http.Request) error {
 	exercise := r.PathValue("exercise")
@@ -283,6 +303,9 @@ func (s *Server) patchPrescription(w http.ResponseWriter, r *http.Request) error
 			p.ClearTargetWeight = true
 		case "target_rir":
 			p.ClearTargetRIR = true
+		case "notes":
+			empty := ""
+			p.Notes = &empty
 		default:
 			iss = append(iss, training.Issue{Field: k, Message: "cannot be null"})
 		}
@@ -311,6 +334,10 @@ func (s *Server) patchPrescription(w http.ResponseWriter, r *http.Request) error
 	}
 	if notNull("skipped") && member(raw, "skipped", &sk, &iss) {
 		p.Skipped = &sk
+	}
+	var note string
+	if notNull("notes") && member(raw, "notes", &note, &iss) {
+		p.Notes = &note
 	}
 	if len(iss) > 0 {
 		sortIssues(iss)
@@ -637,6 +664,31 @@ func (s *Server) listExercises(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"exercises": list})
+	return nil
+}
+
+// createExercise adds an exercise (201) or returns the one the name or an alias
+// already resolves to (200). Near-miss names are reported, never merged.
+func (s *Server) createExercise(w http.ResponseWriter, r *http.Request) error {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := decodeBody(w, r, &body); err != nil {
+		return err
+	}
+	ex, created, similar, err := s.svc.CreateExercise(r.Context(), body.Name)
+	if err != nil {
+		return err
+	}
+	if similar == nil {
+		similar = []string{}
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+		w.Header().Set("Location", fmt.Sprintf("%s/exercises/%d", Prefix, ex.ID))
+	}
+	writeJSON(w, status, map[string]any{"exercise": ex, "created": created, "similar": similar})
 	return nil
 }
 

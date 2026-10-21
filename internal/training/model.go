@@ -249,6 +249,8 @@ type SessionItemPatch struct {
 	TargetWeightKG *float64
 	TargetRIR      *float64
 	Skipped        *bool
+	// Notes replaces the prescription's note; "" clears it.
+	Notes *string
 
 	// Clear* turn an optional target back into "not prescribed".
 	ClearTargetWeight bool
@@ -261,7 +263,7 @@ type SessionItemPatch struct {
 
 func (p SessionItemPatch) Empty() bool {
 	return p.TargetSets == nil && p.RepMin == nil && p.RepMax == nil && p.TargetRPE == nil &&
-		p.TargetWeightKG == nil && p.TargetRIR == nil && p.Skipped == nil &&
+		p.TargetWeightKG == nil && p.TargetRIR == nil && p.Skipped == nil && p.Notes == nil &&
 		!p.ClearTargetWeight && !p.ClearTargetRIR
 }
 

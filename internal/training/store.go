@@ -57,6 +57,9 @@ type Store interface {
 	AddExerciseAlias(ctx context.Context, exerciseID int64, alias string) error
 	RemoveExerciseAlias(ctx context.Context, alias string) error
 	RenameExercise(ctx context.Context, exerciseID int64, newName string) error
+	// EnsureExercise resolves a name or alias, creating the exercise only when
+	// the name is unknown. It reports whether it created one.
+	EnsureExercise(ctx context.Context, name string) (Exercise, bool, error)
 
 	// ImportPlan stores a validated plan in one transaction. With dryRun it
 	// reports the outcome and rolls back.

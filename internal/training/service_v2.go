@@ -47,6 +47,31 @@ func (s *Service) AddExerciseAlias(ctx context.Context, exerciseID int64, alias 
 	return s.store.AddExerciseAlias(ctx, exerciseID, alias)
 }
 
+// CreateExercise adds an exercise to the library, or returns the existing one
+// when the name (or an alias) already resolves to it. It never merges a new
+// name into a different exercise: a near-miss creates a new exercise and the
+// close names are reported in similar, so a typo can be noticed.
+func (s *Service) CreateExercise(ctx context.Context, name string) (Exercise, bool, []string, error) {
+	name = NormalizeExerciseName(name)
+	if name == "" || tooLong(name, maxExerciseLen) {
+		return Exercise{}, false, nil, invalid("name", "must be 1-%d characters", maxExerciseLen)
+	}
+	if _, err := strconv.Atoi(name); err == nil {
+		return Exercise{}, false, nil, invalid("name", "must not be only a number (numbers are read as exercise ids)")
+	}
+	ex, created, err := s.store.EnsureExercise(ctx, name)
+	if err != nil {
+		return Exercise{}, false, nil, err
+	}
+	var similar []string
+	if created {
+		nc := []NewExercise{{ID: ex.ID, Name: ex.Name}}
+		s.annotateNew(ctx, nc)
+		similar = nc[0].Similar
+	}
+	return ex, created, similar, nil
+}
+
 // RemoveExerciseAlias deletes an alias; sets keep pointing at the exercise.
 func (s *Service) RemoveExerciseAlias(ctx context.Context, alias string) error {
 	alias = NormalizeExerciseName(alias)

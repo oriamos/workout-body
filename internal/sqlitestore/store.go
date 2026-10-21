@@ -542,8 +542,8 @@ func (s *Store) PatchSessionItem(ctx context.Context, sessionID int64, exercise 
 	var it training.PlanItem
 	var skipped bool
 	var tw, tr sql.NullFloat64
-	err = tx.QueryRowContext(ctx, `SELECT exercise,target_sets,rep_min,rep_max,target_rpe,target_weight_kg,target_rir,skipped FROM session_items WHERE session_id=? AND exercise=?`,
-		sessionID, exercise).Scan(&it.Exercise, &it.TargetSets, &it.RepMin, &it.RepMax, &it.TargetRPE, &tw, &tr, &skipped)
+	err = tx.QueryRowContext(ctx, `SELECT exercise,target_sets,rep_min,rep_max,target_rpe,target_weight_kg,target_rir,skipped,notes FROM session_items WHERE session_id=? AND exercise=?`,
+		sessionID, exercise).Scan(&it.Exercise, &it.TargetSets, &it.RepMin, &it.RepMax, &it.TargetRPE, &tw, &tr, &skipped, &it.Notes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return training.ErrNotFound
 	}
@@ -578,11 +578,14 @@ func (s *Store) PatchSessionItem(ctx context.Context, sessionID int64, exercise 
 	if p.Skipped != nil {
 		skipped = *p.Skipped
 	}
+	if p.Notes != nil {
+		it.Notes = *p.Notes
+	}
 	if err = invertedRange(it); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE session_items SET target_sets=?,rep_min=?,rep_max=?,target_rpe=?,target_weight_kg=?,target_rir=?,skipped=? WHERE session_id=? AND exercise=?`,
-		it.TargetSets, it.RepMin, it.RepMax, it.TargetRPE, nf(it.TargetWeightKG), nf(it.TargetRIR), skipped, sessionID, exercise); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE session_items SET target_sets=?,rep_min=?,rep_max=?,target_rpe=?,target_weight_kg=?,target_rir=?,skipped=?,notes=? WHERE session_id=? AND exercise=?`,
+		it.TargetSets, it.RepMin, it.RepMax, it.TargetRPE, nf(it.TargetWeightKG), nf(it.TargetRIR), skipped, it.Notes, sessionID, exercise); err != nil {
 		return err
 	}
 	if err = bumpWorkout(ctx, tx, sessionID); err != nil {

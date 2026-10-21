@@ -1098,3 +1098,7 @@ func (m *memoryStore) SetPlanSchedule(context.Context, int64, *Schedule, *int) e
 func (m *memoryStore) WorkoutsInRange(context.Context, string, string) ([]WorkoutDay, error) {
 	panic("unused")
 }
+
+func (m *memoryStore) EnsureExercise(context.Context, string) (Exercise, bool, error) {
+	panic("unused")
+}

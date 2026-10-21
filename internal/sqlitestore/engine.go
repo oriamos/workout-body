@@ -219,6 +219,23 @@ func (s *Store) AddExerciseAlias(ctx context.Context, exerciseID int64, alias st
 	return tx.Commit()
 }
 
+func (s *Store) EnsureExercise(ctx context.Context, name string) (training.Exercise, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return training.Exercise{}, false, err
+	}
+	defer tx.Rollback()
+	r, err := resolveExercise(ctx, tx, 0, name)
+	if err != nil {
+		return training.Exercise{}, false, err
+	}
+	if err = tx.Commit(); err != nil {
+		return training.Exercise{}, false, err
+	}
+	ex, err := s.GetExercise(ctx, strconv.FormatInt(r.id, 10))
+	return ex, r.created, err
+}
+
 func (s *Store) RemoveExerciseAlias(ctx context.Context, alias string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM exercise_aliases WHERE alias=?`, alias)
 	if err != nil {

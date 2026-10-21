@@ -130,6 +130,32 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
+    put:
+      tags: [workouts]
+      operationId: ensureWorkout
+      summary: Get or create the (empty) workout of a date
+      description: |
+        Idempotent get-or-create, so no request body and no `If-Match`: the
+        first call creates an empty workout (`201`), later calls return it
+        (`200`). Safe under concurrent calls: there is only ever one workout per
+        local date. Use it to open a free workout before any set is logged.
+      responses:
+        "200":
+          description: The workout already existed.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workout" }
+        "201":
+          description: The workout was created by this call.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workout" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
 
   /workouts/{date}/sets:
     parameters:
@@ -654,6 +680,42 @@ paths:
                   exercises:
                     type: array
                     items: { $ref: "#/components/schemas/Exercise" }
+        "500": { $ref: "#/components/responses/Internal" }
+    post:
+      tags: [exercises]
+      operationId: createExercise
+      summary: Add an exercise to the library (or get the existing one)
+      description: |
+        The name is normalized (lower case, collapsed whitespace). If it, or an
+        alias, already resolves to an exercise, that exercise is returned with
+        `200` and nothing is created. Otherwise a new exercise is created
+        (`201`) and `similar` lists existing names that look close, so a typo
+        can be noticed. Names are never merged implicitly.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        "200":
+          description: The name already resolves to this exercise.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateExerciseResult" }
+        "201":
+          description: Created.
+          headers:
+            Location: { description: URL of the new exercise., schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateExerciseResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
         "500": { $ref: "#/components/responses/Internal" }
 
   /exercises/{ref}:
@@ -1268,11 +1330,22 @@ components:
         notes: { type: string, maxLength: 500 }
         technique: { type: string, maxLength: 40 }
 
+    CreateExerciseResult:
+      type: object
+      additionalProperties: false
+      required: [exercise, created, similar]
+      properties:
+        exercise: { $ref: "#/components/schemas/Exercise" }
+        created: { type: boolean }
+        similar:
+          type: array
+          items: { type: string }
+          description: Existing names close to a newly created one (empty when nothing was created).
     PrescriptionPatch:
       type: object
       additionalProperties: false
       minProperties: 1
-      description: Merge-patch of a prescription; absent = unchanged; `null` clears `target_weight_kg` / `target_rir` and is rejected elsewhere.
+      description: Merge-patch of a prescription; absent = unchanged; `null` clears `target_weight_kg`, `target_rir` and `notes`, and is rejected elsewhere.
       properties:
         target_sets: { type: integer, minimum: 1, maximum: 20 }
         rep_min: { type: integer, minimum: 0 }
@@ -1281,6 +1354,7 @@ components:
         target_weight_kg: { type: [number, "null"], minimum: 0, maximum: 2000 }
         target_rir: { type: [number, "null"], minimum: 0, maximum: 10 }
         skipped: { type: boolean, description: Consciously dropped today; stays listed in progress. }
+        notes: { type: [string, "null"], maxLength: 2000, description: Replaces the prescription's note; `null` or an empty string clears it. }
 
     Set:
       type: object

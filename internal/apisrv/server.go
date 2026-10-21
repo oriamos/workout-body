@@ -61,6 +61,7 @@ func (s *Server) register() {
 
 	s.handle("GET", "/workouts", s.listWorkouts)
 	s.handle("GET", "/workouts/{date}", s.getWorkout)
+	s.handle("PUT", "/workouts/{date}", s.ensureWorkout)
 	s.handle("POST", "/workouts/{date}/sets", s.logSets)
 	s.handle("POST", "/workouts/{date}/plan", s.followPlan)
 	s.handle("PATCH", "/workouts/{date}/prescriptions/{exercise}", s.patchPrescription)
@@ -83,6 +84,7 @@ func (s *Server) register() {
 	s.handle("GET", "/schedule", s.getSchedule)
 
 	s.handle("GET", "/exercises", s.listExercises)
+	s.handle("POST", "/exercises", s.createExercise)
 	s.handle("GET", "/exercises/{ref}", s.getExercise)
 	s.handle("PATCH", "/exercises/{ref}", s.renameExercise)
 	s.handle("POST", "/exercises/{ref}/aliases", s.addAlias)

@@ -341,6 +341,13 @@ func (s *Service) AdjustSessionItem(ctx context.Context, sessionID int64, exerci
 	if p.TargetRIR != nil && (!finite(*p.TargetRIR) || *p.TargetRIR < 0 || *p.TargetRIR > 10) {
 		iss = append(iss, Issue{Field: "target_rir", Message: "must be between 0 and 10"})
 	}
+	if p.Notes != nil {
+		v := strings.TrimSpace(*p.Notes)
+		p.Notes = &v
+		if tooLong(v, maxPlanNotesLen) {
+			iss = append(iss, Issue{Field: "notes", Message: fmt.Sprintf("must be at most %d characters", maxPlanNotesLen)})
+		}
+	}
 	if p.ClearTargetWeight && p.TargetWeightKG != nil {
 		iss = append(iss, Issue{Field: "target_weight_kg", Message: "cannot both set a value and clear it"})
 	}
