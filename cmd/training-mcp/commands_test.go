@@ -86,3 +86,19 @@ func TestServeStillRequiresTokenButStdioDoesNot(t *testing.T) {
 		t.Fatalf("serve without a token must fail, got %v", err)
 	}
 }
+
+func TestUnusableMediaDirDoesNotStopTheServer(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "file-not-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRAINING_DB_PATH", filepath.Join(dir, "x.db"))
+	t.Setenv("MEDIA_DIR", filepath.Join(blocker, "media")) // cannot be created: parent is a file
+	t.Setenv("MCP_BEARER_TOKEN", "test-token")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runWithContext(ctx, []string{"--addr", "127.0.0.1:0"}); err != nil {
+		t.Fatalf("workout logging must not depend on the video directory: %v", err)
+	}
+}

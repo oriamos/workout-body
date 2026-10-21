@@ -102,13 +102,15 @@ func runWithContext(ctx context.Context, args []string) error {
 		return err
 	}
 	defer store.Close()
-	blobs, err := mediastore.New(cfg.MediaDir)
-	if err != nil {
-		return fmt.Errorf("media directory: %w", err)
+	service := training.NewService(store, time.Now).WithLocation(cfg.Location)
+	// Video storage is optional: if its directory cannot be created, workout
+	// logging must still work, so degrade to "media disabled" instead of failing.
+	if blobs, err := mediastore.New(cfg.MediaDir); err != nil {
+		log.Printf("WARNING: video storage disabled, cannot use MEDIA_DIR %q: %v", cfg.MediaDir, err)
+		service.WithMedia(store, nil, cfg.MaxVideoBytes)
+	} else {
+		service.WithMedia(store, blobs, cfg.MaxVideoBytes)
 	}
-	service := training.NewService(store, time.Now).
-		WithLocation(cfg.Location).
-		WithMedia(store, blobs, cfg.MaxVideoBytes)
 
 	switch opts.command {
 	case "backup":

@@ -84,12 +84,18 @@ type ExerciseGuide struct {
 	Videos       []Media `json:"videos"`
 }
 
-// WithMedia enables video storage. maxBytes <= 0 selects the default limit.
+// WithMedia enables media features. ms stores metadata and exercise
+// instructions; bs stores the video bytes and may be nil, in which case videos
+// are disabled but exercise instructions still work. maxBytes <= 0 selects the
+// default limit.
 func (s *Service) WithMedia(ms MediaStore, bs BlobStore, maxBytes int64) *Service {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxVideoBytes
 	}
 	s.media, s.blobs, s.maxVideo = ms, bs, maxBytes
+	if bs == nil {
+		s.blobs = nil // avoid a typed-nil interface
+	}
 	return s
 }
 
