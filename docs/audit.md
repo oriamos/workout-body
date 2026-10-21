@@ -33,7 +33,7 @@ and are what this project changed.
 
 | Capability | Evidence |
 |---|---|
-| One workout per local date, created on first write, reused by later writes and other conversations | `integration/TestOneWorkoutPerDate…`, `e2e/TestAcceptanceFlow` |
+| One workout per local date, created on first write, reused by later writes and other conversations | `integration/TestOneWorkoutPerLocalDate`, `e2e/TestAcceptanceFlow` |
 | Concurrent first writes → one workout | `integration` (24 concurrent `LogSets` + `EnsureWorkout`), `e2e/TestConcurrentFirstWritesFromMCPAndHTTP`, `apisrv` (12 concurrent POSTs) |
 | Date from the configured timezone, incl. both DST transitions | `integration/TestDateBoundariesInJerusalem` (11 cases) |
 | Explicit historical dates; future dates refused for sets | `integration` |
