@@ -11,3 +11,10 @@
 .env
 .env.*
 !.env.example
+
+# Web UI (web/)
+node_modules
+dist
+.vite
+*.log
+.claude/skills/impeccable/scripts/.cache
