@@ -197,6 +197,8 @@ type Plan struct {
 	Items []PlanItem `json:"items,omitempty"`
 	// Revision increments on every change to the plan.
 	Revision int `json:"revision"`
+	// Schedule is when the plan is meant to be done; null means unscheduled.
+	Schedule *Schedule `json:"schedule"`
 	// TotalSets is the planned set count, the number the volume-landmark
 	// feedback loop actually adjusts week to week.
 	TotalSets int `json:"total_sets"`

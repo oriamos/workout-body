@@ -2,33 +2,107 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/oriamos/workout-body/docs/schemas/workout-plan.v1.schema.json",
   "title": "Workout plan, version 1",
-  "description": "A reusable workout routine: an ordered list of exercise prescriptions. A prescription says what is PLANNED; performed sets are logged separately and are never created by importing a plan. Omit a field to mean 'not prescribed'.",
+  "description": "A reusable workout routine: an ordered list of exercise prescriptions. A prescription says what is PLANNED; performed sets are logged separately and are never created by importing a plan. Omit a field to mean 'not prescribed'. A plan may carry an optional fixed schedule (fixed weekdays, or a weekly frequency); a schedule says when the plan is meant to be done and never creates or changes a workout.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "version", "name", "items"],
+  "required": [
+    "format",
+    "version",
+    "name",
+    "items"
+  ],
   "properties": {
-    "format": { "const": "workout-plan" },
-    "version": { "const": 1 },
+    "format": {
+      "const": "workout-plan"
+    },
+    "version": {
+      "const": 1
+    },
     "name": {
       "type": "string",
       "minLength": 1,
       "maxLength": 100,
       "description": "Identifies the plan. Import matches existing plans by name, case-insensitively."
     },
-    "notes": { "type": "string", "maxLength": 2000 },
+    "notes": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "schedule": {
+      "description": "Optional. When the plan is meant to be done, in the server's configured timezone (weeks start on Monday). Omit for an unscheduled plan. On import with on_conflict=replace, a document without `schedule` clears the existing plan's schedule.",
+      "oneOf": [
+        {
+          "title": "Fixed weekdays",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "days"
+          ],
+          "properties": {
+            "type": {
+              "const": "weekdays"
+            },
+            "days": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 7,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "mon",
+                  "tue",
+                  "wed",
+                  "thu",
+                  "fri",
+                  "sat",
+                  "sun"
+                ]
+              },
+              "description": "Lower-case three-letter days. The server also accepts full names and any case, and stores them canonically in Monday-first order."
+            }
+          }
+        },
+        {
+          "title": "Weekly frequency",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "times_per_week"
+          ],
+          "properties": {
+            "type": {
+              "const": "times_per_week"
+            },
+            "times_per_week": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7,
+              "description": "How many workouts per Monday-Sunday week; the days are up to you."
+            }
+          }
+        }
+      ]
+    },
     "items": {
       "type": "array",
       "minItems": 1,
       "maxItems": 40,
       "description": "Performed in this order. Each exercise may appear once; use `sets` for volume.",
-      "items": { "$ref": "#/$defs/item" }
+      "items": {
+        "$ref": "#/$defs/item"
+      }
     }
   },
   "$defs": {
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["exercise", "sets"],
+      "required": [
+        "exercise",
+        "sets"
+      ],
       "properties": {
         "exercise": {
           "type": "string",
@@ -36,14 +110,52 @@
           "maxLength": 100,
           "description": "Exercise name or alias. Normalized to lower case with collapsed whitespace. Unknown names create a new exercise."
         },
-        "sets": { "type": "integer", "minimum": 1, "maximum": 20, "description": "Planned number of working sets." },
-        "rep_min": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Lower end of the rep range. For a fixed target set rep_min = rep_max." },
-        "rep_max": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Upper end of the rep range. Must be >= rep_min when both are given." },
-        "target_weight_kg": { "type": "number", "minimum": 0, "maximum": 2000, "description": "Optional planned load in kilograms." },
-        "target_rpe": { "type": "number", "minimum": 1, "maximum": 10, "description": "Optional target rate of perceived exertion." },
-        "target_rir": { "type": "number", "minimum": 0, "maximum": 10, "description": "Optional target reps in reserve." },
-        "superset": { "type": "string", "maxLength": 40, "description": "Items sharing a label are performed back to back." },
-        "notes": { "type": "string", "maxLength": 2000, "description": "Cues, tempo, intent." }
+        "sets": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Planned number of working sets."
+        },
+        "rep_min": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Lower end of the rep range. For a fixed target set rep_min = rep_max."
+        },
+        "rep_max": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Upper end of the rep range. Must be >= rep_min when both are given."
+        },
+        "target_weight_kg": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2000,
+          "description": "Optional planned load in kilograms."
+        },
+        "target_rpe": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Optional target rate of perceived exertion."
+        },
+        "target_rir": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Optional target reps in reserve."
+        },
+        "superset": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Items sharing a label are performed back to back."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Cues, tempo, intent."
+        }
       }
     }
   }

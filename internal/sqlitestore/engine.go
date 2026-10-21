@@ -809,7 +809,11 @@ func (s *Store) AttachPlan(ctx context.Context, sessionID, planID int64) error {
 
 func loadPlan(ctx context.Context, q dbtx, id int64) (training.Plan, error) {
 	var p training.Plan
-	err := q.QueryRowContext(ctx, `SELECT id,name,notes,revision FROM plans WHERE id=?`, id).Scan(&p.ID, &p.Name, &p.Notes, &p.Revision)
+	var typ, days string
+	var times int
+	err := q.QueryRowContext(ctx, `SELECT id,name,notes,revision,schedule_type,schedule_days,schedule_times FROM plans WHERE id=?`, id).
+		Scan(&p.ID, &p.Name, &p.Notes, &p.Revision, &typ, &days, &times)
+	p.Schedule = decodeSchedule(typ, days, times)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, training.ErrNotFound
 	}
@@ -837,7 +841,8 @@ func loadPlan(ctx context.Context, q dbtx, id int64) (training.Plan, error) {
 // insertPlan writes a plan and its items, resolving exercise names (aliases
 // included) and reporting the exercises it created.
 func insertPlan(ctx context.Context, tx dbtx, p training.Plan) (int64, []training.NewExercise, error) {
-	res, err := tx.ExecContext(ctx, `INSERT INTO plans(name,notes,created_at) VALUES (?,?,CURRENT_TIMESTAMP)`, p.Name, p.Notes)
+	typ, days, times := encodeSchedule(p.Schedule)
+	res, err := tx.ExecContext(ctx, `INSERT INTO plans(name,notes,schedule_type,schedule_days,schedule_times,created_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`, p.Name, p.Notes, typ, days, times)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -909,7 +914,8 @@ func (s *Store) ImportPlan(ctx context.Context, p training.Plan, onConflict stri
 		if created, err = insertPlanItems(ctx, tx, existing, p.Items); err != nil {
 			return out, err
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE plans SET name=?,notes=?,revision=revision+1 WHERE id=?`, p.Name, p.Notes, existing); err != nil {
+		typ, days, times := encodeSchedule(p.Schedule)
+		if _, err = tx.ExecContext(ctx, `UPDATE plans SET name=?,notes=?,schedule_type=?,schedule_days=?,schedule_times=?,revision=revision+1 WHERE id=?`, p.Name, p.Notes, typ, days, times, existing); err != nil {
 			return out, err
 		}
 		out.Replaced = true
@@ -953,7 +959,8 @@ func (s *Store) ReplacePlan(ctx context.Context, id int64, p training.Plan, expe
 	if _, err = insertPlanItems(ctx, tx, id, p.Items); err != nil {
 		return training.Plan{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE plans SET name=?,notes=?,revision=revision+1 WHERE id=?`, p.Name, p.Notes, id); err != nil {
+	typ, days, times := encodeSchedule(p.Schedule)
+	if _, err = tx.ExecContext(ctx, `UPDATE plans SET name=?,notes=?,schedule_type=?,schedule_days=?,schedule_times=?,revision=revision+1 WHERE id=?`, p.Name, p.Notes, typ, days, times, id); err != nil {
 		return training.Plan{}, err
 	}
 	out, err := loadPlan(ctx, tx, id)

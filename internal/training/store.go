@@ -66,4 +66,9 @@ type Store interface {
 	DeletePlanExpected(ctx context.Context, id int64, expectedRevision *int) error
 
 	SetRecords(ctx context.Context, from, to string) ([]SetRecord, error)
+
+	// SetPlanSchedule stores (nil clears) a plan's schedule and bumps its revision.
+	SetPlanSchedule(ctx context.Context, id int64, s *Schedule, expectedRevision *int) error
+	// WorkoutsInRange lists stored workouts with their plan and set counts.
+	WorkoutsInRange(ctx context.Context, from, to string) ([]WorkoutDay, error)
 }

@@ -213,11 +213,13 @@ const (
 
 // PlanDocument is the portable plan format (docs/plan-format.md).
 type PlanDocument struct {
-	Format  string             `json:"format"`
-	Version int                `json:"version"`
-	Name    string             `json:"name"`
-	Notes   string             `json:"notes,omitempty"`
-	Items   []PlanDocumentItem `json:"items"`
+	Format  string `json:"format"`
+	Version int    `json:"version"`
+	Name    string `json:"name"`
+	Notes   string `json:"notes,omitempty"`
+	// Schedule is optional; omit it for an unscheduled plan.
+	Schedule *Schedule          `json:"schedule,omitempty"`
+	Items    []PlanDocumentItem `json:"items"`
 }
 
 // PlanDocumentItem prescribes one exercise. Nil/zero means "not prescribed".

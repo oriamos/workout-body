@@ -229,6 +229,11 @@ func validatePlan(p *Plan, setsField string) error {
 	if tooLong(p.Notes, maxPlanNotesLen) {
 		out = append(out, Issue{Field: "notes", Message: fmt.Sprintf("must be at most %d characters", maxPlanNotesLen)})
 	}
+	if sched, sIss := normalizeSchedule(p.Schedule, "schedule"); len(sIss) > 0 {
+		out = append(out, sIss...)
+	} else {
+		p.Schedule = sched
+	}
 	if len(p.Items) == 0 || len(p.Items) > MaxBatchItems {
 		out = append(out, Issue{Field: "items", Message: fmt.Sprintf("must contain between 1 and %d exercises", MaxBatchItems)})
 	}

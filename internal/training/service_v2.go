@@ -118,6 +118,8 @@ func ParsePlanDocument(data []byte) (PlanDocument, error) {
 			field(k, v, &doc.Name)
 		case "notes":
 			field(k, v, &doc.Notes)
+		case "schedule":
+			parseScheduleField(k, v, &doc, typeErr, &iss)
 		case "items":
 			var items []json.RawMessage
 			if err := json.Unmarshal(v, &items); err != nil {
@@ -206,6 +208,44 @@ func zeroMeansOmit(path string, v *int, typeErr map[string]bool, iss *[]Issue) {
 	}
 }
 
+// parseScheduleField decodes the optional "schedule" object field by field so
+// every problem is reported with its path.
+func parseScheduleField(path string, raw json.RawMessage, doc *PlanDocument, typeErr map[string]bool, iss *[]Issue) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		typeErr[path] = true
+		*iss = append(*iss, Issue{Field: path, Message: "must not be null; omit the field for an unscheduled plan"})
+		return
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		typeErr[path] = true
+		*iss = append(*iss, Issue{Field: path, Message: "expected an object such as {\"type\":\"weekdays\",\"days\":[\"mon\",\"thu\"]}"})
+		return
+	}
+	sc := &Schedule{}
+	for k, v := range m {
+		p := path + "." + k
+		var err error
+		switch k {
+		case "type":
+			err = json.Unmarshal(v, &sc.Type)
+		case "days":
+			err = json.Unmarshal(v, &sc.Days)
+		case "times_per_week":
+			err = json.Unmarshal(v, &sc.TimesPerWeek)
+		default:
+			*iss = append(*iss, Issue{Field: p, Message: "unknown field"})
+			continue
+		}
+		if err != nil {
+			typeErr[p] = true
+			typeErr[path] = true
+			*iss = append(*iss, Issue{Field: p, Message: typeProblem(err)})
+		}
+	}
+	doc.Schedule = sc
+}
+
 func jsonProblem(err error) string {
 	var se *json.SyntaxError
 	if errors.As(err, &se) {
@@ -215,7 +255,7 @@ func jsonProblem(err error) string {
 }
 
 func (d PlanDocument) toPlan() Plan {
-	p := Plan{Name: d.Name, Notes: d.Notes}
+	p := Plan{Name: d.Name, Notes: d.Notes, Schedule: d.Schedule}
 	for _, it := range d.Items {
 		p.Items = append(p.Items, PlanItem{
 			Exercise: it.Exercise, TargetSets: it.Sets, RepMin: it.RepMin, RepMax: it.RepMax,
@@ -228,7 +268,7 @@ func (d PlanDocument) toPlan() Plan {
 
 // PlanToDocument converts a stored plan to the portable format.
 func PlanToDocument(p Plan) PlanDocument {
-	d := PlanDocument{Format: PlanFormat, Version: PlanVersion, Name: p.Name, Notes: p.Notes, Items: []PlanDocumentItem{}}
+	d := PlanDocument{Format: PlanFormat, Version: PlanVersion, Name: p.Name, Notes: p.Notes, Schedule: p.Schedule, Items: []PlanDocumentItem{}}
 	for _, it := range p.Items {
 		d.Items = append(d.Items, PlanDocumentItem{
 			Exercise: it.Exercise, Sets: it.TargetSets, RepMin: it.RepMin, RepMax: it.RepMax,

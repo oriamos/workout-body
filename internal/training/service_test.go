@@ -1090,3 +1090,11 @@ func TestSetLandmarksValidation(t *testing.T) {
 		}
 	}
 }
+
+func (m *memoryStore) SetPlanSchedule(context.Context, int64, *Schedule, *int) error {
+	panic("unused")
+}
+
+func (m *memoryStore) WorkoutsInRange(context.Context, string, string) ([]WorkoutDay, error) {
+	panic("unused")
+}

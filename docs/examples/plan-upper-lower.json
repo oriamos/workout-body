@@ -3,6 +3,13 @@
   "version": 1,
   "name": "Upper A",
   "notes": "Synthetic example. Heavy upper-body day; rest 2-3 minutes between working sets.",
+  "schedule": {
+    "type": "weekdays",
+    "days": [
+      "mon",
+      "thu"
+    ]
+  },
   "items": [
     {
       "exercise": "bench press",

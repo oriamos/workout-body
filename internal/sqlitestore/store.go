@@ -201,7 +201,7 @@ func (s *Store) CreatePlan(ctx context.Context, p training.Plan) (training.Plan,
 
 func (s *Store) ListPlans(ctx context.Context) ([]training.Plan, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT p.id,p.name,p.notes,COALESCE(SUM(i.target_sets),0),COUNT(i.id)
+SELECT p.id,p.name,p.notes,COALESCE(SUM(i.target_sets),0),COUNT(i.id),p.revision,p.schedule_type,p.schedule_days,p.schedule_times
 FROM plans p LEFT JOIN plan_items i ON i.plan_id=p.id
 GROUP BY p.id ORDER BY p.name`)
 	if err != nil {
@@ -211,10 +211,12 @@ GROUP BY p.id ORDER BY p.name`)
 	var out []training.Plan
 	for rows.Next() {
 		var p training.Plan
-		var items int
-		if err = rows.Scan(&p.ID, &p.Name, &p.Notes, &p.TotalSets, &items); err != nil {
+		var items, times int
+		var typ, days string
+		if err = rows.Scan(&p.ID, &p.Name, &p.Notes, &p.TotalSets, &items, &p.Revision, &typ, &days, &times); err != nil {
 			return nil, err
 		}
+		p.Schedule = decodeSchedule(typ, days, times)
 		// Items are left empty here; the list view only needs the totals.
 		p.Items = make([]training.PlanItem, 0, items)
 		out = append(out, p)
