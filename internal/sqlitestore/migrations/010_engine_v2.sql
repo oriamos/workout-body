@@ -33,6 +33,16 @@ INSERT OR IGNORE INTO session_feedback (session_id, muscle_group, fatigue, pump,
 SELECT m.keep_id, f.muscle_group, f.fatigue, f.pump, f.recovery, f.created_at
 FROM session_feedback f JOIN dup_map m ON m.old_id = f.session_id;
 
+-- A survivor that followed no plan inherits the plan snapshot of the oldest
+-- merged duplicate that did, so "which plan was this workout" is not lost.
+UPDATE sessions SET
+ plan_id = (SELECT d.plan_id FROM dup_map m JOIN sessions d ON d.id = m.old_id
+            WHERE m.keep_id = sessions.id AND d.plan_name <> '' ORDER BY d.id LIMIT 1),
+ plan_name = (SELECT d.plan_name FROM dup_map m JOIN sessions d ON d.id = m.old_id
+              WHERE m.keep_id = sessions.id AND d.plan_name <> '' ORDER BY d.id LIMIT 1)
+WHERE plan_name = '' AND plan_id IS NULL AND id IN (
+ SELECT m.keep_id FROM dup_map m JOIN sessions d ON d.id = m.old_id WHERE d.plan_name <> '');
+
 -- ---- 3. exercise identity -------------------------------------------------
 CREATE TABLE exercises (
  id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,0 +1,47 @@
+{
+  "format": "workout-plan",
+  "version": 1,
+  "name": "Push A",
+  "notes": "Synthetic test plan. Chest, shoulders and triceps.",
+  "items": [
+    {
+      "exercise": "Bench Press",
+      "sets": 3,
+      "rep_min": 6,
+      "rep_max": 8,
+      "target_weight_kg": 80,
+      "target_rpe": 8,
+      "notes": "Pause on the chest."
+    },
+    {
+      "exercise": "incline dumbbell press",
+      "sets": 3,
+      "rep_min": 8,
+      "rep_max": 12,
+      "target_rir": 2
+    },
+    {
+      "exercise": "overhead press",
+      "sets": 3,
+      "rep_min": 6,
+      "rep_max": 10,
+      "target_weight_kg": 0,
+      "superset": "a"
+    },
+    {
+      "exercise": "lateral raise",
+      "sets": 3,
+      "rep_min": 12,
+      "rep_max": 15,
+      "superset": "A"
+    },
+    {
+      "exercise": "triceps pushdown",
+      "sets": 2,
+      "rep_min": 10,
+      "rep_max": 15,
+      "target_rpe": 9,
+      "target_rir": 1
+    }
+  ]
+}

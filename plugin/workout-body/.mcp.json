@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "workout-body": {
+      "type": "http",
+      "url": "${WORKOUT_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${WORKOUT_MCP_TOKEN}"
+      }
+    }
+  }
+}

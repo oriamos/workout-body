@@ -844,9 +844,7 @@ func (s *Service) UpdateSet(ctx context.Context, id int64, p SetPatch) (Set, flo
 		return Set{}, 0, invalid("set_id", "must be positive")
 	}
 	var iss []Issue
-	empty := p.Exercise == nil && p.ExerciseID == nil && p.WeightKG == nil && p.Reps == nil && p.RPE == nil && p.RIR == nil &&
-		p.SetType == nil && p.Notes == nil && p.Technique == nil && !p.ClearWeight && !p.ClearReps && !p.ClearRPE && !p.ClearRIR
-	if empty {
+	if p.Empty() {
 		iss = append(iss, Issue{Message: "provide at least one field to change"})
 	}
 	conflict := func(set *bool, flag bool, name string) {

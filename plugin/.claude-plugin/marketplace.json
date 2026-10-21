@@ -1,0 +1,11 @@
+{
+  "name": "workout-body-local",
+  "owner": { "name": "workout-body" },
+  "plugins": [
+    {
+      "name": "workout-body",
+      "source": "./workout-body",
+      "description": "Workout logging skill plus the workout-body MCP server connection (HTTP, static bearer token)."
+    }
+  ]
+}

@@ -1,0 +1,1237 @@
+openapi: 3.1.0
+info:
+  title: Workout engine API
+  version: "1"
+  summary: JSON HTTP API (v1) for the personal workout engine UI.
+  description: |
+    A thin adapter over the same training service the MCP server uses; every
+    business rule lives in the engine.
+
+    ## Conventions
+    - **JSON only**, UTF-8, `snake_case` field names. Request bodies require
+      `Content-Type: application/json` (PATCH also accepts
+      `application/merge-patch+json`), are limited to 1 MiB and are decoded
+      strictly: unknown fields are rejected with a `validation_error` naming
+      the field, and trailing data is a `bad_request`.
+    - **Dates** are local calendar dates `YYYY-MM-DD` in the server's
+      configured timezone (see `GET /config`). The literal `today` is
+      accepted wherever a date is accepted (path segments and `from`/`to`).
+    - **Units**: weight in kilograms (`*_kg`); RPE on a 1-10 scale; RIR
+      (reps in reserve) 0-10.
+    - **Nullable vs optional**: a performed set's metrics (`weight_kg`,
+      `reps`, `rpe`, `rir`) are nullable. In responses `null` means *not
+      recorded* (different from `0`, which is an explicit zero load). In a
+      POST body, absent and `null` both mean *not provided*. In a PATCH body
+      (merge-patch semantics) an absent member is *unchanged* and `null`
+      *clears* the value back to not recorded.
+    - **Revisions and ETags**: workouts, sets and plans carry a `revision`
+      that increments on every change. Responses for a single workout, set or
+      plan carry `ETag: "<revision>"`. Mutating a set or plan (PATCH, PUT,
+      DELETE) requires `If-Match` with that ETag: missing -> `428`, stale ->
+      `412`. Appending sets/prescriptions may send an optional `If-Match`
+      (workout revision). A conflict reported by the engine maps to `412`
+      when the request carried `If-Match`, otherwise `409`.
+    - **Idempotency**: `POST /workouts/{date}/sets` honours an
+      `Idempotency-Key` header (max 128 chars). The first success returns
+      `201`; a replay of the same key with the same body returns `200` with
+      `replayed: true` and writes nothing; the same key with a different body
+      is a `409`.
+    - **Errors** always use the `Error` envelope. `500` responses never carry
+      internal details (they are logged server-side).
+    - **Authentication** is a bearer token applied by the outer server layer.
+servers:
+  - url: /api/v1
+security:
+  - bearer: []
+tags:
+  - name: meta
+  - name: workouts
+  - name: sets
+  - name: plans
+  - name: exercises
+  - name: stats
+
+paths:
+  /config:
+    get:
+      tags: [meta]
+      operationId: getConfig
+      summary: Server configuration relevant to clients
+      responses:
+        "200":
+          description: Configuration.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Config" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /openapi.yaml:
+    get:
+      tags: [meta]
+      operationId: getOpenAPI
+      summary: This OpenAPI document
+      responses:
+        "200":
+          description: The embedded OpenAPI 3.1 document.
+          content:
+            application/yaml:
+              schema: { type: string }
+
+  /workouts:
+    get:
+      tags: [workouts]
+      operationId: listWorkouts
+      summary: List workout summaries, newest first
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: limit
+          in: query
+          description: Maximum number of workouts (1-100, default 20).
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Workout summaries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [workouts]
+                properties:
+                  workouts:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorkoutSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /workouts/{date}:
+    parameters:
+      - $ref: "#/components/parameters/Date"
+    get:
+      tags: [workouts]
+      operationId: getWorkout
+      summary: Get the workout of a date with its sets and progress
+      description: Never creates anything; a date without a workout is `404`.
+      responses:
+        "200":
+          description: The workout.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workout" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /workouts/{date}/sets:
+    parameters:
+      - $ref: "#/components/parameters/Date"
+    post:
+      tags: [workouts]
+      operationId: logSets
+      summary: Append performed sets and/or merge prescriptions (atomic)
+      description: |
+        Creates the workout for the date if it does not exist (one workout per
+        local date). Everything is applied in one transaction or not at all.
+        Sets cannot be logged for future dates; prescriptions can.
+        Prescriptions merge into existing ones: fields left at 0/absent keep the
+        stored value. Prescriptions never create completed sets.
+      parameters:
+        - $ref: "#/components/parameters/IfMatchOptional"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LogSetsRequest" }
+      responses:
+        "201":
+          description: Written. `created` says whether the workout was new.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchResult" }
+        "200":
+          description: Idempotent replay (`replayed` is true); nothing new was written.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /workouts/{date}/plan:
+    parameters:
+      - $ref: "#/components/parameters/Date"
+    post:
+      tags: [workouts]
+      operationId: followPlan
+      summary: Make the workout of a date follow a plan
+      description: |
+        Creates the workout if needed and copies the plan's prescriptions into
+        it (exercises the workout already prescribes keep their own). Following
+        the same plan again is a no-op; a workout that already follows a
+        different plan is a `409`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [plan_id]
+              properties:
+                plan_id: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The workout after following the plan.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workout" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /workouts/{date}/prescriptions/{exercise}:
+    parameters:
+      - $ref: "#/components/parameters/Date"
+      - name: exercise
+        in: path
+        required: true
+        description: Exercise name or alias (URL-encoded), as prescribed in the workout.
+        schema: { type: string }
+    patch:
+      tags: [workouts]
+      operationId: adjustPrescription
+      summary: Adjust one prescription of the workout
+      description: |
+        Merge-patch: only the members given change. `null` is rejected
+        (clearing a prescription field is not supported by the engine).
+        Optional `If-Match` (workout revision) is checked before the edit; the
+        check is advisory, not atomic with it.
+      parameters:
+        - $ref: "#/components/parameters/IfMatchOptional"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PrescriptionPatch" }
+          application/merge-patch+json:
+            schema: { $ref: "#/components/schemas/PrescriptionPatch" }
+      responses:
+        "200":
+          description: The workout after the change.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workout" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+    delete:
+      tags: [workouts]
+      operationId: removePrescription
+      summary: Remove one prescription from the workout
+      description: Sets already logged for the exercise are kept and show up as off-plan work.
+      parameters:
+        - $ref: "#/components/parameters/IfMatchOptional"
+      responses:
+        "200":
+          description: The workout after the change.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workout" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /sets/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Stable set id.
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [sets]
+      operationId: getSet
+      summary: Get one set
+      responses:
+        "200":
+          description: The set.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Set" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+    patch:
+      tags: [sets]
+      operationId: updateSet
+      summary: Change fields of one set (merge-patch)
+      parameters:
+        - $ref: "#/components/parameters/IfMatchRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetPatch" }
+          application/merge-patch+json:
+            schema: { $ref: "#/components/schemas/SetPatch" }
+      responses:
+        "200":
+          description: The updated set.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Set" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+    delete:
+      tags: [sets]
+      operationId: deleteSet
+      summary: Delete one set
+      description: Remaining sets keep their ids; positions are compacted.
+      parameters:
+        - $ref: "#/components/parameters/IfMatchRequired"
+      responses:
+        "200":
+          description: Deleted. The workout as it is now is included.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted_set_id, workout]
+                properties:
+                  deleted_set_id: { type: integer }
+                  workout:
+                    oneOf:
+                      - $ref: "#/components/schemas/Workout"
+                      - type: "null"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /plans:
+    get:
+      tags: [plans]
+      operationId: listPlans
+      summary: List plans
+      responses:
+        "200":
+          description: Plans.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [plans]
+                properties:
+                  plans:
+                    type: array
+                    items: { $ref: "#/components/schemas/Plan" }
+        "500": { $ref: "#/components/responses/Internal" }
+    post:
+      tags: [plans]
+      operationId: createPlan
+      summary: Create a plan from a plan document
+      description: Equivalent to import with `on_conflict=error`. A plan with the same name (case-insensitive) is a `409`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanDocument" }
+      responses:
+        "201":
+          description: Created.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Location:
+              description: URL of the new plan.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanImportResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /plans/import:
+    post:
+      tags: [plans]
+      operationId: importPlan
+      summary: Import a plan document
+      description: |
+        Plans are matched by name (case-insensitive). With
+        `on_conflict=replace` an existing plan keeps its id and has its notes
+        and exercises replaced; workouts already created from it are never
+        changed. `dry_run=true` validates and reports the outcome without
+        writing (no ETag; a would-be-created plan has id 0).
+        An `Idempotency-Key` header is accepted but not yet honoured here.
+      parameters:
+        - name: on_conflict
+          in: query
+          schema: { type: string, enum: [error, replace], default: error }
+        - name: dry_run
+          in: query
+          schema: { type: boolean, default: false }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanDocument" }
+      responses:
+        "201":
+          description: A new plan was created.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Location:
+              description: URL of the new plan.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanImportResult" }
+        "200":
+          description: An existing plan was replaced, or a dry run.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanImportResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /plans/{id}:
+    parameters:
+      - $ref: "#/components/parameters/PlanID"
+    get:
+      tags: [plans]
+      operationId: getPlan
+      summary: Get one plan
+      responses:
+        "200":
+          description: The plan.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+    put:
+      tags: [plans]
+      operationId: replacePlan
+      summary: Replace a plan's name, notes and exercises
+      parameters:
+        - $ref: "#/components/parameters/IfMatchRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanDocument" }
+      responses:
+        "200":
+          description: The replaced plan.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+    delete:
+      tags: [plans]
+      operationId: deletePlan
+      summary: Delete a plan
+      description: Workouts that followed it keep their copied prescriptions and plan name.
+      parameters:
+        - $ref: "#/components/parameters/IfMatchRequired"
+      responses:
+        "204":
+          description: Deleted.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /plans/{id}/export:
+    parameters:
+      - $ref: "#/components/parameters/PlanID"
+    get:
+      tags: [plans]
+      operationId: exportPlan
+      summary: Export a plan as a portable plan document
+      description: Importing the result recreates the same prescriptions.
+      responses:
+        "200":
+          description: The plan document, as a download.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+            Content-Disposition:
+              description: '`attachment; filename="<slugged-plan-name>.json"`'
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanDocument" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /exercises:
+    get:
+      tags: [exercises]
+      operationId: listExercises
+      summary: List exercises with their aliases
+      responses:
+        "200":
+          description: Exercises, ordered by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [exercises]
+                properties:
+                  exercises:
+                    type: array
+                    items: { $ref: "#/components/schemas/Exercise" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /exercises/{ref}:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseRef"
+    get:
+      tags: [exercises]
+      operationId: getExercise
+      summary: Get one exercise by id, name or alias
+      responses:
+        "200":
+          description: The exercise.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exercise" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+    patch:
+      tags: [exercises]
+      operationId: renameExercise
+      summary: Rename an exercise
+      description: |
+        Changes the canonical name everywhere it is referenced. The old name
+        does not become an alias. A name already used by another exercise (or
+        its alias) is a `409`: renaming never merges exercises.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        "200":
+          description: The renamed exercise.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exercise" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /exercises/{ref}/aliases:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseRef"
+    post:
+      tags: [exercises]
+      operationId: addExerciseAlias
+      summary: Add an alias to an exercise
+      description: |
+        Adding an alias the exercise already has is a no-op. An alias that is
+        another exercise's name or alias is a `409`: aliases never merge
+        exercises.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [alias]
+              properties:
+                alias: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        "200":
+          description: The exercise with its aliases.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exercise" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /exercises/{ref}/aliases/{alias}:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseRef"
+      - name: alias
+        in: path
+        required: true
+        description: The alias to remove (URL-encoded).
+        schema: { type: string }
+    delete:
+      tags: [exercises]
+      operationId: removeExerciseAlias
+      summary: Remove an alias from an exercise
+      description: Sets keep pointing at the exercise. An alias that does not belong to this exercise is a `404`.
+      responses:
+        "200":
+          description: The exercise with its remaining aliases.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exercise" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /exercises/{ref}/history:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseRef"
+    get:
+      tags: [exercises]
+      operationId: exerciseHistory
+      summary: Recorded sets of one exercise, newest first, with the best set
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of sets (1-500, default 50).
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+      responses:
+        "200":
+          description: History.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExerciseHistory" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /exercises/{ref}/stats:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseRef"
+    get:
+      tags: [exercises]
+      operationId: exerciseStats
+      summary: Progression of one exercise over a date range
+      description: Warm-up sets are counted separately and excluded from volume and bests.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Statistics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExerciseStats" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /stats/summary:
+    get:
+      tags: [stats]
+      operationId: trainingSummary
+      summary: Training overview of a date range
+      description: Defaults to the 28 days ending today. Warm-ups are counted separately.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Summary.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainingSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+
+  headers:
+    ETag:
+      description: The resource revision as a strong entity tag, e.g. `"3"`. Equals the body's `revision`.
+      schema: { type: string, example: '"3"' }
+
+  parameters:
+    Date:
+      name: date
+      in: path
+      required: true
+      description: Local calendar date `YYYY-MM-DD` in the server timezone, or `today`.
+      schema: { type: string, example: "2026-03-10" }
+    From:
+      name: from
+      in: query
+      description: Inclusive start date (`YYYY-MM-DD` or `today`).
+      schema: { type: string }
+    To:
+      name: to
+      in: query
+      description: Inclusive end date (`YYYY-MM-DD` or `today`).
+      schema: { type: string }
+    PlanID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    ExerciseRef:
+      name: ref
+      in: path
+      required: true
+      description: Exercise id, canonical name or alias (URL-encoded). Never creates an exercise.
+      schema: { type: string }
+    IfMatchRequired:
+      name: If-Match
+      in: header
+      required: true
+      description: The ETag from your last read. Missing -> 428, stale -> 412. `*` matches any revision.
+      schema: { type: string, example: '"3"' }
+    IfMatchOptional:
+      name: If-Match
+      in: header
+      required: false
+      description: Optional workout ETag; when sent and stale the request fails with 412.
+      schema: { type: string, example: '"3"' }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: "Client-chosen key (max 128 chars) making a retry safe. Replays return 200 with `replayed: true`."
+      schema: { type: string, maxLength: 128 }
+
+  responses:
+    BadRequest:
+      description: "`validation_error` (with `issues`) or `bad_request` (malformed JSON, bad header)."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: "`not_found`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: "`conflict`: the write was rejected to protect existing data (duplicate name, reused idempotency key, plan already followed, stale revision without If-Match)."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PreconditionFailed:
+      description: "`precondition_failed`: If-Match did not match the current revision. Re-read and retry."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PreconditionRequired:
+      description: "`precondition_required`: this mutation requires If-Match."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PayloadTooLarge:
+      description: "`payload_too_large`: body over 1 MiB."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UnsupportedMediaType:
+      description: "`unsupported_media_type`: body sent without `Content-Type: application/json`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Internal:
+      description: "`internal`: unexpected server error; details are logged, never returned."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - validation_error
+                - not_found
+                - conflict
+                - precondition_failed
+                - precondition_required
+                - bad_request
+                - internal
+                - method_not_allowed
+                - unsupported_media_type
+                - payload_too_large
+            message: { type: string }
+            issues:
+              type: array
+              description: Present for `validation_error`; one entry per problem found.
+              items: { $ref: "#/components/schemas/Issue" }
+
+    Issue:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string, description: 'JSON path of the rejected value, e.g. `sets[1].reps`; empty for whole-request problems.' }
+        message: { type: string }
+
+    Config:
+      type: object
+      required: [timezone, today, api_version]
+      properties:
+        timezone: { type: string, description: IANA timezone dates are resolved in., example: Asia/Jerusalem }
+        today: { type: string, description: Current local date `YYYY-MM-DD`. }
+        api_version: { type: string, example: v1 }
+
+    SetType:
+      type: string
+      description: Every type except `warmup` counts as completed working work in analytics. Defaults to `working`.
+      enum: [warmup, working, backoff, drop, failure]
+
+    SetInput:
+      type: object
+      additionalProperties: false
+      description: |
+        One performed set. Give `exercise` (name or alias; an unknown name
+        creates a new exercise, reported in `new_exercises`) or `exercise_id`
+        (wins when both are given). Metrics absent or `null` are not recorded.
+      properties:
+        exercise: { type: string, maxLength: 100 }
+        exercise_id: { type: integer, minimum: 1 }
+        weight_kg: { type: [number, "null"], minimum: 0, maximum: 2000, description: Load in kg; 0 is an explicit zero load. }
+        reps: { type: [integer, "null"], minimum: 1, maximum: 1000 }
+        rpe: { type: [number, "null"], minimum: 1, maximum: 10, description: Rate of perceived exertion (1-10). }
+        rir: { type: [number, "null"], minimum: 0, maximum: 10, description: Reps in reserve (0-10). }
+        set_type: { $ref: "#/components/schemas/SetType" }
+        notes: { type: string, maxLength: 500 }
+        technique: { type: string, maxLength: 40, description: 'Optional intensity technique, e.g. "drop set".' }
+        superset: { type: string, maxLength: 40, description: Round label; derived from the workout's prescription when empty. }
+
+    PrescriptionInput:
+      type: object
+      additionalProperties: false
+      required: [exercise, target_sets]
+      description: A planned exercise. Zero/absent targets mean not prescribed (and, when merging, keep the stored value).
+      properties:
+        exercise: { type: string, maxLength: 100 }
+        target_sets: { type: integer, minimum: 1, maximum: 20 }
+        rep_min: { type: integer, minimum: 0, maximum: 1000 }
+        rep_max: { type: integer, minimum: 0, maximum: 1000 }
+        target_rpe: { type: number, minimum: 0, maximum: 10, description: RPE 1-10; 0 = no target. }
+        target_weight_kg: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        target_rir: { type: [number, "null"], minimum: 0, maximum: 10 }
+        superset: { type: string, maxLength: 40 }
+        notes: { type: string, maxLength: 2000 }
+
+    LogSetsRequest:
+      type: object
+      additionalProperties: false
+      description: At least one set or prescription. At most 100 sets and 40 prescriptions.
+      properties:
+        sets:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/SetInput" }
+        prescriptions:
+          type: array
+          maxItems: 40
+          items: { $ref: "#/components/schemas/PrescriptionInput" }
+        plan_id:
+          type: integer
+          minimum: 1
+          description: Follow this plan if the workout follows none yet (409 if it follows another).
+
+    SetPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: |
+        Merge-patch of a set: absent = unchanged. `null` clears `weight_kg`,
+        `reps`, `rpe` or `rir` back to not recorded; `null` is rejected for
+        the other members.
+      properties:
+        exercise: { type: string, maxLength: 100 }
+        exercise_id: { type: integer, minimum: 1 }
+        weight_kg: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        reps: { type: [integer, "null"], minimum: 1, maximum: 1000 }
+        rpe: { type: [number, "null"], minimum: 1, maximum: 10 }
+        rir: { type: [number, "null"], minimum: 0, maximum: 10 }
+        set_type: { $ref: "#/components/schemas/SetType" }
+        notes: { type: string, maxLength: 500 }
+        technique: { type: string, maxLength: 40 }
+
+    PrescriptionPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Merge-patch of a prescription; absent = unchanged; `null` is rejected.
+      properties:
+        target_sets: { type: integer, minimum: 1, maximum: 20 }
+        rep_min: { type: integer, minimum: 0 }
+        rep_max: { type: integer, minimum: 0 }
+        target_rpe: { type: number, minimum: 0, maximum: 10 }
+        target_weight_kg: { type: number, minimum: 0, maximum: 2000 }
+        target_rir: { type: number, minimum: 0, maximum: 10 }
+        skipped: { type: boolean, description: Consciously dropped today; stays listed in progress. }
+
+    Set:
+      type: object
+      required: [id, session_id, position, exercise_id, exercise, weight_kg, reps, rpe, rir, set_type, revision, si]
+      description: A performed set. Address it by `id`, never by `set_number`.
+      properties:
+        id: { type: integer }
+        session_id: { type: integer, description: Id of the workout the set belongs to. }
+        position: { type: integer, description: 1-based order in the workout. }
+        exercise_id: { type: integer }
+        exercise: { type: string, description: Canonical exercise name. }
+        weight_kg: { type: [number, "null"], description: kg; null = not recorded. }
+        reps: { type: [integer, "null"], description: null = not recorded. }
+        rpe: { type: [number, "null"], description: 1-10; null = not recorded. }
+        rir: { type: [number, "null"], description: 0-10; null = not recorded. }
+        set_type: { $ref: "#/components/schemas/SetType" }
+        notes: { type: string, description: Omitted when empty. }
+        set_number: { type: integer, description: 1-based order among sets of the same exercise. Only present in workout reads. }
+        revision: { type: integer }
+        si: { type: number, description: Legacy RPE-derived intensity score; 0 without RPE. }
+        technique: { type: string, description: Omitted when empty. }
+        superset: { type: string, description: Omitted when empty. }
+
+    Prescription:
+      type: object
+      required: [position, exercise, target_sets]
+      description: A planned exercise (in a plan or a workout). Zero-valued targets are omitted (not prescribed).
+      properties:
+        position: { type: integer }
+        exercise: { type: string }
+        target_sets: { type: integer }
+        rep_min: { type: integer }
+        rep_max: { type: integer }
+        target_rpe: { type: number }
+        target_weight_kg: { type: number, description: kg; omitted when not prescribed. }
+        target_rir: { type: number, description: Omitted when not prescribed. }
+        superset: { type: string }
+        notes: { type: string }
+
+    ProgressItem:
+      type: object
+      required: [exercise, target_sets, done_sets]
+      description: |
+        Planned versus completed work for one exercise. Exercises done but not
+        planned appear with `target_sets` 0. Only logged non-warm-up sets count
+        as done.
+      properties:
+        exercise: { type: string }
+        muscle_group: { type: string }
+        superset: { type: string }
+        notes: { type: string }
+        target_sets: { type: integer }
+        done_sets: { type: integer }
+        warmup_sets: { type: integer }
+        rep_min: { type: integer }
+        rep_max: { type: integer }
+        target_rpe: { type: number }
+        target_weight_kg: { type: number }
+        target_rir: { type: number }
+        skipped: { type: boolean }
+
+    Workout:
+      type: object
+      required: [id, date, sets, progress, total_si, plan_id, plan_name, revision]
+      description: The single workout of a local date.
+      properties:
+        id: { type: integer }
+        date: { type: string, description: Local date `YYYY-MM-DD`. }
+        sets:
+          type: array
+          items: { $ref: "#/components/schemas/Set" }
+        progress:
+          type: array
+          items: { $ref: "#/components/schemas/ProgressItem" }
+        total_si: { type: number }
+        plan_id: { type: [integer, "null"], description: Plan followed; null when none. }
+        plan_name: { type: [string, "null"], description: Snapshot of the plan name; null when none. }
+        revision: { type: integer }
+
+    WorkoutSummary:
+      type: object
+      required: [id, date, set_count, total_si]
+      properties:
+        id: { type: integer }
+        date: { type: string }
+        set_count: { type: integer }
+        total_si: { type: number }
+        plan_name: { type: string, description: Omitted when the workout follows no plan. }
+
+    NewExercise:
+      type: object
+      required: [id, name]
+      description: An exercise created by this write; `similar` lists existing names that look alike (possible typo).
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        similar:
+          type: array
+          items: { type: string }
+
+    BatchResult:
+      type: object
+      required: [workout, created, sets, prescriptions, new_exercises, replayed]
+      properties:
+        workout: { $ref: "#/components/schemas/Workout" }
+        created: { type: boolean, description: True when this request created the workout. }
+        sets:
+          type: array
+          description: The sets appended by this request.
+          items: { $ref: "#/components/schemas/Set" }
+        prescriptions:
+          type: array
+          description: The prescriptions as stored after merging.
+          items: { $ref: "#/components/schemas/Prescription" }
+        new_exercises:
+          type: array
+          items: { $ref: "#/components/schemas/NewExercise" }
+        replayed: { type: boolean, description: True for an idempotent replay; nothing new was written. }
+
+    PlanDocumentItem:
+      type: object
+      additionalProperties: false
+      required: [exercise, sets]
+      properties:
+        exercise: { type: string, maxLength: 100 }
+        sets: { type: integer, minimum: 1, maximum: 20 }
+        rep_min: { type: integer, minimum: 0 }
+        rep_max: { type: integer, minimum: 0 }
+        target_weight_kg: { type: number, minimum: 0, maximum: 2000 }
+        target_rpe: { type: number, minimum: 1, maximum: 10 }
+        target_rir: { type: number, minimum: 0, maximum: 10 }
+        superset: { type: string, maxLength: 40 }
+        notes: { type: string, maxLength: 2000 }
+
+    PlanDocument:
+      type: object
+      additionalProperties: false
+      required: [format, version, name, items]
+      description: The portable plan format (docs/schemas/workout-plan.v1.schema.json). Exercises must be unique within a plan.
+      properties:
+        format: { type: string, const: workout-plan }
+        version: { type: integer, const: 1 }
+        name: { type: string, maxLength: 100 }
+        notes: { type: string, maxLength: 2000 }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 40
+          items: { $ref: "#/components/schemas/PlanDocumentItem" }
+
+    Plan:
+      type: object
+      required: [id, name, revision, total_sets]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        notes: { type: string }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Prescription" }
+        revision: { type: integer }
+        total_sets: { type: integer }
+
+    PlanImportResult:
+      type: object
+      required: [plan, created, replaced, dry_run, new_exercises]
+      properties:
+        plan: { $ref: "#/components/schemas/Plan" }
+        created: { type: boolean }
+        replaced: { type: boolean }
+        dry_run: { type: boolean }
+        new_exercises:
+          type: array
+          items: { $ref: "#/components/schemas/NewExercise" }
+
+    Exercise:
+      type: object
+      required: [id, name, aliases, set_count]
+      properties:
+        id: { type: integer }
+        name: { type: string, description: Canonical normalized (lowercase) name. }
+        aliases:
+          type: array
+          items: { type: string }
+        muscle_group: { type: string }
+        set_count: { type: integer }
+
+    ExerciseHistorySet:
+      type: object
+      required: [set_id, session_id, date, weight_kg, reps, rpe, rir, set_type, si, est_1rm]
+      properties:
+        set_id: { type: integer }
+        session_id: { type: integer }
+        date: { type: string }
+        weight_kg: { type: [number, "null"] }
+        reps: { type: [integer, "null"] }
+        rpe: { type: [number, "null"] }
+        rir: { type: [number, "null"] }
+        set_type: { $ref: "#/components/schemas/SetType" }
+        notes: { type: string }
+        technique: { type: string }
+        superset: { type: string }
+        si: { type: number }
+        est_1rm: { type: number, description: Epley estimate in kg; 0 when weight or reps is missing. }
+
+    ExerciseHistory:
+      type: object
+      required: [exercise, sets]
+      properties:
+        exercise: { type: string }
+        muscle_group: { type: string }
+        sets:
+          type: array
+          items: { $ref: "#/components/schemas/ExerciseHistorySet" }
+        best: { $ref: "#/components/schemas/ExerciseHistorySet" }
+
+    ExerciseBest:
+      type: object
+      required: [value, date, set_id]
+      properties:
+        value: { type: number }
+        date: { type: string }
+        set_id: { type: integer }
+
+    ExerciseStatsPoint:
+      type: object
+      required: [date, working_sets, warmup_sets, total_reps, volume_kg, top_weight_kg, best_e1rm, unrecorded_sets]
+      properties:
+        date: { type: string }
+        working_sets: { type: integer }
+        warmup_sets: { type: integer }
+        total_reps: { type: integer }
+        volume_kg: { type: number, description: Sum of weight x reps over working sets with both recorded. }
+        top_weight_kg: { type: [number, "null"] }
+        best_e1rm: { type: number }
+        unrecorded_sets: { type: integer, description: Working sets missing weight or reps. }
+
+    ExerciseStats:
+      type: object
+      required: [exercise_id, exercise, workouts, working_sets, warmup_sets, volume_kg, max_weight_kg, best_e1rm, max_reps, points]
+      properties:
+        exercise_id: { type: integer }
+        exercise: { type: string }
+        from: { type: string }
+        to: { type: string }
+        workouts: { type: integer }
+        working_sets: { type: integer }
+        warmup_sets: { type: integer }
+        volume_kg: { type: number }
+        max_weight_kg:
+          oneOf:
+            - $ref: "#/components/schemas/ExerciseBest"
+            - type: "null"
+        best_e1rm:
+          oneOf:
+            - $ref: "#/components/schemas/ExerciseBest"
+            - type: "null"
+        max_reps:
+          oneOf:
+            - $ref: "#/components/schemas/ExerciseBest"
+            - type: "null"
+        points:
+          type: array
+          items: { $ref: "#/components/schemas/ExerciseStatsPoint" }
+
+    TrainingSummary:
+      type: object
+      required: [from, to, workouts, working_sets, warmup_sets, volume_kg, unrecorded_sets, by_exercise, by_muscle_group, by_week]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        workouts: { type: integer }
+        working_sets: { type: integer }
+        warmup_sets: { type: integer }
+        volume_kg: { type: number }
+        unrecorded_sets: { type: integer }
+        by_exercise:
+          type: array
+          items:
+            type: object
+            required: [exercise_id, exercise, working_sets, volume_kg]
+            properties:
+              exercise_id: { type: integer }
+              exercise: { type: string }
+              working_sets: { type: integer }
+              volume_kg: { type: number }
+        by_muscle_group:
+          type: array
+          items:
+            type: object
+            required: [muscle_group, working_sets, volume_kg]
+            properties:
+              muscle_group: { type: string, description: Empty for exercises without a muscle group. }
+              working_sets: { type: integer }
+              volume_kg: { type: number }
+        by_week:
+          type: array
+          items:
+            type: object
+            required: [week_start, workouts, working_sets, volume_kg]
+            properties:
+              week_start: { type: string, description: Monday of the week. }
+              workouts: { type: integer }
+              working_sets: { type: integer }
+              volume_kg: { type: number }

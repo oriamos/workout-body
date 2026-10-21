@@ -498,6 +498,9 @@ type ExerciseMemory struct {
 }
 type Clock func() time.Time
 
+// Empty reports whether the patch changes nothing. Clear* flags and every
+// optional metric count as changes.
 func (p SetPatch) Empty() bool {
-	return p.Exercise == nil && p.WeightKG == nil && p.Reps == nil && p.RPE == nil && p.Technique == nil
+	return p.Exercise == nil && p.ExerciseID == nil && p.WeightKG == nil && p.Reps == nil && p.RPE == nil && p.RIR == nil &&
+		p.SetType == nil && p.Notes == nil && p.Technique == nil && !p.ClearWeight && !p.ClearReps && !p.ClearRPE && !p.ClearRIR
 }

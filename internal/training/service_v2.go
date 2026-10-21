@@ -1,7 +1,6 @@
 package training
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -84,51 +83,105 @@ var (
 func ParsePlanDocument(data []byte) (PlanDocument, error) {
 	var doc PlanDocument
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	if err := json.Unmarshal(data, &raw); err != nil || raw == nil {
+		if err == nil {
+			err = errors.New("null")
+		}
 		return doc, invalid("", "not a valid JSON object: %v", jsonProblem(err))
 	}
+	// Every field is decoded on its own so that ALL type errors are reported,
+	// each with its exact path (items[1].sets), instead of only the first one
+	// encoding/json would return with an index-less path.
 	var iss []Issue
-	for k := range raw {
-		if !planTopKeys[k] {
-			iss = append(iss, Issue{Field: k, Message: "unknown field"})
+	typeErr := map[string]bool{}
+	field := func(path string, msg json.RawMessage, dst any) {
+		if err := json.Unmarshal(msg, dst); err != nil {
+			typeErr[path] = true
+			iss = append(iss, Issue{Field: path, Message: typeProblem(err)})
 		}
 	}
-	if rawItems, ok := raw["items"]; ok {
-		var items []map[string]json.RawMessage
-		if err := json.Unmarshal(rawItems, &items); err == nil {
-			for i, it := range items {
-				for k := range it {
-					if !planItemKeys[k] {
-						iss = append(iss, Issue{Field: fmt.Sprintf("items[%d].%s", i, k), Message: "unknown field"})
+	for k, v := range raw {
+		switch k {
+		case "format":
+			field(k, v, &doc.Format)
+		case "version":
+			field(k, v, &doc.Version)
+		case "name":
+			field(k, v, &doc.Name)
+		case "notes":
+			field(k, v, &doc.Notes)
+		case "items":
+			var items []json.RawMessage
+			if err := json.Unmarshal(v, &items); err != nil {
+				typeErr[k] = true
+				iss = append(iss, Issue{Field: k, Message: "expected an array of exercises"})
+				continue
+			}
+			doc.Items = make([]PlanDocumentItem, len(items))
+			for i, rawItem := range items {
+				var m map[string]json.RawMessage
+				if err := json.Unmarshal(rawItem, &m); err != nil || m == nil {
+					iss = append(iss, Issue{Field: fmt.Sprintf("items[%d]", i), Message: "expected an object"})
+					continue
+				}
+				it := &doc.Items[i]
+				for ik, iv := range m {
+					p := fmt.Sprintf("items[%d].%s", i, ik)
+					switch ik {
+					case "exercise":
+						field(p, iv, &it.Exercise)
+					case "sets":
+						field(p, iv, &it.Sets)
+					case "rep_min":
+						field(p, iv, &it.RepMin)
+					case "rep_max":
+						field(p, iv, &it.RepMax)
+					case "target_weight_kg":
+						field(p, iv, &it.TargetWeightKG)
+					case "target_rpe":
+						field(p, iv, &it.TargetRPE)
+					case "target_rir":
+						field(p, iv, &it.TargetRIR)
+					case "superset":
+						field(p, iv, &it.Superset)
+					case "notes":
+						field(p, iv, &it.Notes)
+					default:
+						iss = append(iss, Issue{Field: p, Message: "unknown field"})
 					}
 				}
 			}
+		default:
+			iss = append(iss, Issue{Field: k, Message: "unknown field"})
 		}
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	if err := dec.Decode(&doc); err != nil {
-		var ute *json.UnmarshalTypeError
-		if errors.As(err, &ute) {
-			iss = append(iss, Issue{Field: ute.Field, Message: fmt.Sprintf("expected %s, got %s", ute.Type, ute.Value)})
-		} else {
-			iss = append(iss, Issue{Message: jsonProblem(err)})
-		}
-		sort.SliceStable(iss, func(a, b int) bool { return iss[a].Field < iss[b].Field })
-		return doc, issues(iss)
-	}
-	if doc.Format != PlanFormat {
+	if doc.Format != PlanFormat && !typeErr["format"] {
 		iss = append(iss, Issue{Field: "format", Message: fmt.Sprintf("must be %q", PlanFormat)})
 	}
-	if doc.Version != PlanVersion {
+	if doc.Version != PlanVersion && !typeErr["version"] {
 		iss = append(iss, Issue{Field: "version", Message: fmt.Sprintf("must be %d (this server reads version %d)", PlanVersion, PlanVersion)})
 	}
 	if p := doc.toPlan(); true {
 		if err := validatePlan(&p); err != nil {
-			iss = append(iss, IssuesOf(err)...)
+			for _, i := range IssuesOf(err) {
+				// A value that failed to decode was already reported; do not
+				// add a second, misleading "must be between" issue for it.
+				if !typeErr[i.Field] && !(typeErr["items"] && i.Field == "items") {
+					iss = append(iss, i)
+				}
+			}
 		}
 	}
 	sort.SliceStable(iss, func(a, b int) bool { return iss[a].Field < iss[b].Field })
 	return doc, issues(iss)
+}
+
+func typeProblem(err error) string {
+	var ute *json.UnmarshalTypeError
+	if errors.As(err, &ute) {
+		return fmt.Sprintf("expected %s, got %s", ute.Type, ute.Value)
+	}
+	return jsonProblem(err)
 }
 
 func jsonProblem(err error) string {

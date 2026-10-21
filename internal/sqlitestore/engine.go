@@ -833,11 +833,21 @@ func insertPlan(ctx context.Context, tx dbtx, p training.Plan) (int64, []trainin
 
 func insertPlanItems(ctx context.Context, tx dbtx, planID int64, items []training.PlanItem) ([]training.NewExercise, error) {
 	var created []training.NewExercise
+	// plan_items is only unique on (plan_id, position), so two names that
+	// resolve to one exercise (a name and its alias) must be caught here.
+	seen := map[int64]int{}
 	for i, it := range items {
 		ex, err := resolveExercise(ctx, tx, 0, it.Exercise)
 		if err != nil {
 			return nil, err
 		}
+		if first, dup := seen[ex.id]; dup {
+			return nil, &training.ValidationError{Issues: []training.Issue{{
+				Field:   fmt.Sprintf("items[%d].exercise", i),
+				Message: fmt.Sprintf("%q is the same exercise as items[%d] (%q) through an alias; list each exercise once", it.Exercise, first, ex.name),
+			}}}
+		}
+		seen[ex.id] = i
 		if ex.created {
 			created = append(created, training.NewExercise{ID: ex.id, Name: ex.name})
 		}
