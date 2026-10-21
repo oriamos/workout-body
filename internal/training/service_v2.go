@@ -1,6 +1,7 @@
 package training
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -95,6 +96,13 @@ func ParsePlanDocument(data []byte) (PlanDocument, error) {
 	var iss []Issue
 	typeErr := map[string]bool{}
 	field := func(path string, msg json.RawMessage, dst any) {
+		// The published schema has no nullable fields: "not prescribed" is
+		// expressed by leaving the field out.
+		if bytes.Equal(bytes.TrimSpace(msg), []byte("null")) {
+			typeErr[path] = true
+			iss = append(iss, Issue{Field: path, Message: "must not be null; omit the field instead"})
+			return
+		}
 		if err := json.Unmarshal(msg, dst); err != nil {
 			typeErr[path] = true
 			iss = append(iss, Issue{Field: path, Message: typeProblem(err)})
@@ -134,12 +142,17 @@ func ParsePlanDocument(data []byte) (PlanDocument, error) {
 						field(p, iv, &it.Sets)
 					case "rep_min":
 						field(p, iv, &it.RepMin)
+						zeroMeansOmit(p, &it.RepMin, typeErr, &iss)
 					case "rep_max":
 						field(p, iv, &it.RepMax)
+						zeroMeansOmit(p, &it.RepMax, typeErr, &iss)
 					case "target_weight_kg":
 						field(p, iv, &it.TargetWeightKG)
 					case "target_rpe":
 						field(p, iv, &it.TargetRPE)
+						if !typeErr[p] && it.TargetRPE == 0 {
+							iss = append(iss, Issue{Field: p, Message: "must be between 1 and 10; omit the field for 'not prescribed'"})
+						}
 					case "target_rir":
 						field(p, iv, &it.TargetRIR)
 					case "superset":
@@ -182,6 +195,15 @@ func typeProblem(err error) string {
 		return fmt.Sprintf("expected %s, got %s", ute.Type, ute.Value)
 	}
 	return jsonProblem(err)
+}
+
+// zeroMeansOmit rejects an explicit 0 for a count that the schema requires to
+// be at least 1. (The engine stores "not prescribed" as 0 internally, but the
+// document format says to leave the field out.)
+func zeroMeansOmit(path string, v *int, typeErr map[string]bool, iss *[]Issue) {
+	if !typeErr[path] && *v == 0 {
+		*iss = append(*iss, Issue{Field: path, Message: "must be at least 1; omit the field for 'not prescribed'"})
+	}
 }
 
 func jsonProblem(err error) string {

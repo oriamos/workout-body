@@ -8,4 +8,4 @@
 
 The server does not implement a tunnel, TLS termination, OAuth, JWT, or connector provisioning. Use the official [MCP transport documentation](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports) and your selected tunnel provider's current documentation. Never expose the bypass mode on a public address.
 
-Health is `GET /health`; the MCP Streamable HTTP endpoint is `/mcp`. There are no REST or GraphQL routes.
+Health is `GET /health`; the MCP Streamable HTTP endpoint is `/mcp`. The JSON API lives under `/api/v1` ([http-api.md](http-api.md)); there is no GraphQL.

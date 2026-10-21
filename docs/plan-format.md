@@ -37,7 +37,7 @@ Per item:
 | `superset` | no | Items sharing a label run back to back. ≤ 40 chars. |
 | `notes` | no | ≤ 2000 chars. |
 
-Omitted means *not prescribed* — never zero. Unknown fields are rejected, so a
+Omitted means *not prescribed* — never zero. An explicit `0` for `rep_min`, `rep_max` or `target_rpe`, and `null` for any field, are rejected (leave the field out). Whole numbers (`sets`, `rep_min`, `rep_max`) must be written as integers: `4`, not `4.0`. Unknown fields are rejected, so a
 typo like `target_wieght_kg` is an error instead of being silently ignored.
 
 Items are performed in the order listed. Whether routines rotate (A/B/C) or

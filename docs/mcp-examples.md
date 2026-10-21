@@ -1,7 +1,8 @@
 # MCP examples
 
-These are the calls the end-to-end acceptance test (`internal/e2e`) actually
-makes against the real binary, so they are known to work. The assistant — not
+The four-message flow below is what the end-to-end acceptance test
+(`internal/e2e`) runs against the real binary; the other calls are covered by
+`internal/mcpsrv` (in memory and over Streamable HTTP). The assistant — not
 the server — turns your sentences into these structured calls; the server only
 sees explicit values. Full parameter reference: [mcp-tools.md](mcp-tools.md).
 

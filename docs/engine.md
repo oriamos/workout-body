@@ -23,7 +23,7 @@ history, and a prescription can never be mistaken for a completed set.
 
 * The date is a calendar date `YYYY-MM-DD` in the **configured timezone**
   (`WORKOUT_TIMEZONE`, default `Asia/Jerusalem`). It is never the server's UTC
-  date: at 21:30 UTC on 10 March, it is already 11 March in Jerusalem.
+  date: at 22:30 UTC on 10 March it is already 00:30 on 11 March in Jerusalem.
 * `sessions.date` has a `UNIQUE` index. Get-or-create is a single
   `INSERT … ON CONFLICT(date) DO NOTHING` followed by a read, inside one
   transaction, so simultaneous first writes (MCP and HTTP, or two
@@ -75,7 +75,7 @@ exercise performed without a prescription:
 
 Writing a prescription through the batch operation **merges**: fields that are
 omitted keep their stored value, so "planning 4 sets" does not erase a previously
-stored rep range or target weight. (The older `set_session_item` path replaces.)
+stored rep range or target weight. (The `add_session_exercise` tool, which sets a whole prescription, replaces.)
 
 ## Atomic batch logging
 

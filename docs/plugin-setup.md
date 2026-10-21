@@ -62,7 +62,7 @@ client.
 
 | Item | Status |
 |---|---|
-| All tools over Streamable HTTP with the bearer token, using the official Go MCP SDK client against the real binary | **Verified** (`internal/e2e`, `internal/mcpsrv`) |
+| Every tool via the official Go MCP SDK client, in memory and over Streamable HTTP with bearer auth (`internal/mcpsrv`); the acceptance flow and a subset of tools against the real binary (`internal/e2e`) | **Verified** |
 | `--stdio` against the real binary, with no token | **Verified** (`internal/e2e`) |
 | Missing/wrong/non-Bearer credentials rejected with 401 | **Verified** |
 | Plugin files match the current Claude Code documentation (layout, `.mcp.json`, `${VAR}` expansion, marketplace schema) | **Checked against the docs**, not installed |

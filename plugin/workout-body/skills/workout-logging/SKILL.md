@@ -110,7 +110,7 @@ log is worse than a missing one.
   what it is attached to, and get a yes first. Deleting a set already
   deletes its videos.
 - If a tool says media storage is not configured, tell the user that video
-  and guide storage is not enabled on their server; do not retry.
+  storage is not enabled on their server (written guides and instructions still work); do not retry.
 
 ## Reading "AxB"
 

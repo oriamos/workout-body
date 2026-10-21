@@ -114,6 +114,9 @@ func runWithContext(ctx context.Context, args []string) error {
 
 	switch opts.command {
 	case "backup":
+		if err := os.MkdirAll(filepath.Dir(opts.arg), 0o700); err != nil {
+			return fmt.Errorf("backup to %s: %w", opts.arg, err)
+		}
 		if err := service.Snapshot(ctx, opts.arg); err != nil {
 			return fmt.Errorf("backup to %s: %w", opts.arg, err)
 		}

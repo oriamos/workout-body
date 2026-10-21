@@ -28,7 +28,7 @@ machine you control, behind HTTPS.
 * The API sets no CORS headers: it is same-origin only. A browser UI served from
   another origin needs a reverse proxy that adds CORS and holds the token
   server-side; do not embed the token in client-side code you distribute.
-* Request bodies are limited to 1 MiB.
+* JSON and MCP request bodies are limited to 1 MiB; video uploads to `MAX_VIDEO_MB` (default 200 MB) and only on the video endpoints.
 
 Never commit tokens, `.env` files, database files or real training data. `.gitignore`
 excludes them; keep it that way.

@@ -9,13 +9,15 @@ half-applied schema. There are no down migrations: restore a backup to go back.
 
 ## Adding one
 
-1. Create the next file, zero-padded: `011_short_name.sql`. Never edit one that
+1. Create the next file, zero-padded: `012_short_name.sql` (010 and 011 exist). Never edit one that
    has shipped.
 2. `ALTER TABLE … ADD COLUMN` needs a default if the column is `NOT NULL`.
 3. Making a column nullable or adding a `CHECK` needs a table rebuild
    (create new → copy → drop → rename). `PRAGMA foreign_keys` cannot be changed
-   inside the migration transaction, so only rebuild tables that nothing
-   references (like `sets`); alter `sessions` in place.
+   inside the migration transaction, so dropping a table that other tables
+   reference cascades into them. `sets` was rebuilt in 010 only because nothing
+   referenced it then; since 011, `media` references `sets` and `exercises`, so
+   alter those (and `sessions`) in place instead of rebuilding them.
 4. Add a test in `internal/integration` that builds a database at the previous
    version with realistic legacy rows, opens it with the new code, and asserts
    the data survived.
@@ -40,6 +42,10 @@ automatically. **Back up first** ([backup-restore.md](backup-restore.md)). It:
 * Adds `target_weight_kg`/`target_rir` to plan and session prescriptions and
   `revision` to plans and sessions.
 * Adds `idempotency_keys`.
+
+Migration `011_media_and_instructions.sql` then adds the `media` table (video
+metadata; the files live in `MEDIA_DIR`) and `exercises.instructions`. Both
+run automatically on first start.
 
 Data written by the older version stays valid: it simply has no RIR/notes and
 every set is a working set.

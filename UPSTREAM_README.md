@@ -1,3 +1,5 @@
+> **Note:** this is the original README of the upstream project, kept for attribution. Its relative links (for example `docs/tools.md`) point at files in the upstream repository and may not exist here. See the root [README.md](README.md) for this project.
+
 # Training MCP
 
 [![CI](https://github.com/FullFran/training-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/FullFran/training-mcp/actions/workflows/ci.yml)

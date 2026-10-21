@@ -117,7 +117,7 @@ overwriting each other.
 | Status | `code` | When |
 |---|---|---|
 | 400 | `validation_error`, `bad_request` | Invalid values (every problem listed in `issues`), malformed or unknown JSON fields |
-| 401 | `unauthorized` | Missing/wrong token |
+| 401 | — | Missing/wrong token. Answered by the authentication layer in front of the API: a plain-text `unauthorized` body with `WWW-Authenticate: Bearer`, **not** the JSON error shape |
 | 404 | `not_found` | Unknown id, date, name |
 | 405 | `method_not_allowed` | Known path, wrong method (`Allow` header set) |
 | 409 | `conflict` | Idempotency-key reuse with another payload, plan-name collision, alias/rename collision, per-owner video limit |

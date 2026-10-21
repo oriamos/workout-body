@@ -249,7 +249,7 @@ func TestInvalidBatchWritesNothing(t *testing.T) {
 		{Exercise: "", WeightKG: f(-1), RPE: f(12), RIR: f(-1)},
 	}, Prescriptions: []training.PlanItem{{Exercise: "squat", TargetSets: 0, RepMin: 8, RepMax: 5}}})
 	fields := requireFields(t, err, "sets[1].reps", "sets[2].exercise", "sets[2].weight_kg", "sets[2].rpe", "sets[2].rir",
-		"prescriptions[0].target_sets", "prescriptions[0].reps")
+		"prescriptions[0].target_sets", "prescriptions[0].rep_min")
 	if _, bad := fields["sets[0].reps"]; bad {
 		t.Fatalf("valid set reported: %v", joinFields(fields))
 	}

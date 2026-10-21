@@ -1,5 +1,7 @@
 # ChatGPT setup
 
+> **Untested.** These steps were inherited from the upstream project and have not been tried against this server. See [plugin-setup.md](plugin-setup.md) for what is and is not verified.
+
 ## Public connector
 
 1. Run the service behind a public HTTPS endpoint.

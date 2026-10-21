@@ -185,10 +185,17 @@ func planItemIssues(it *PlanItem, path, setsField string) []Issue {
 	if it.TargetSets <= 0 || it.TargetSets > 20 {
 		add(setsField, "must be between 1 and 20, got %d", it.TargetSets)
 	}
-	if it.RepMin < 0 || it.RepMax < 0 || it.RepMin > MaxReps || it.RepMax > MaxReps {
-		add("reps", "rep_min and rep_max must be between 0 and %d (0 means not prescribed)", MaxReps)
-	} else if it.RepMax > 0 && it.RepMin > it.RepMax {
-		add("reps", "rep_min (%d) must not exceed rep_max (%d)", it.RepMin, it.RepMax)
+	repsOK := true
+	if it.RepMin < 0 || it.RepMin > MaxReps {
+		add("rep_min", "must be between 1 and %d (omit it for 'not prescribed')", MaxReps)
+		repsOK = false
+	}
+	if it.RepMax < 0 || it.RepMax > MaxReps {
+		add("rep_max", "must be between 1 and %d (omit it for 'not prescribed')", MaxReps)
+		repsOK = false
+	}
+	if repsOK && it.RepMax > 0 && it.RepMin > it.RepMax {
+		add("rep_min", "%d must not exceed rep_max (%d)", it.RepMin, it.RepMax)
 	}
 	if it.TargetRPE != 0 && (!finite(it.TargetRPE) || it.TargetRPE < 1 || it.TargetRPE > 10) {
 		add("target_rpe", "must be between 1 and 10 (omit it for no target)")

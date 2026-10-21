@@ -29,7 +29,7 @@ data and concurrency behaviour.
 | `internal/httpsrv` | Outer router, bearer authentication, body limits, `/health`. |
 | `internal/websrv` | Upstream server-rendered PWA (optional, not extended). |
 | `internal/config` | Environment configuration, timezone loading. |
-| `cmd/training-mcp` | Entry point: `serve` (default), `--stdio`, `backup`. |
+| `cmd/training-mcp` | Entry point: `serve` (default), `--stdio`, `backup`, `media-gc`. |
 | `plugin/workout-body` | Claude Code plugin: MCP config and assistant skill. |
 
 ## Key decisions

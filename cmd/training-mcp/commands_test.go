@@ -102,3 +102,17 @@ func TestUnusableMediaDirDoesNotStopTheServer(t *testing.T) {
 		t.Fatalf("workout logging must not depend on the video directory: %v", err)
 	}
 }
+
+func TestBackupCreatesMissingDestinationFolder(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TRAINING_DB_PATH", filepath.Join(dir, "live.db"))
+	t.Setenv("MEDIA_DIR", filepath.Join(dir, "media"))
+	t.Setenv("MCP_BEARER_TOKEN", "")
+	dest := filepath.Join(dir, "not", "yet", "there", "backup.db")
+	if err := runWithContext(context.Background(), []string{"backup", dest}); err != nil {
+		t.Fatalf("backup into a missing folder must work: %v", err)
+	}
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatal(err)
+	}
+}
