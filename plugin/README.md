@@ -29,7 +29,13 @@ against the real service on a temporary SQLite database:
   HTTP 401, and the SDK client cannot connect without the right token;
 - the four-message bench/squat logging scenario from the skill, idempotent
   retries, validation and conflict error text, plan import/export round trip
-  with dry run, values left unrecorded, and tool annotations.
+  with dry run, values left unrecorded, prescription revisions/clears, and
+  tool annotations;
+- exercise guides (via alias), instructions, listing and deleting set and
+  exercise videos, video cleanup when a set is deleted, and the error text
+  when media storage is disabled. Videos in tests are attached directly
+  through the service with synthetic bytes; the HTTP upload endpoints belong
+  to the API server and are not exercised by these tests.
 
 ### Not verified
 

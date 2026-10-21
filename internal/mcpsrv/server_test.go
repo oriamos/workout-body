@@ -222,7 +222,7 @@ func TestIncrementalLoggingScenario(t *testing.T) {
 		var r1 training.BatchResult
 		callOK(t, cs, "log_sets", map[string]any{
 			"sets":            []any{map[string]any{"exercise": "Bench Press", "weight_kg": 60, "reps": 8}},
-			"prescriptions":   []any{map[string]any{"exercise": "bench press", "sets": 3}},
+			"prescriptions":   []any{map[string]any{"exercise": "bench press", "target_sets": 3}},
 			"idempotency_key": "msg-1",
 		}, &r1)
 		if !r1.Created || len(r1.Sets) != 1 || r1.Sets[0].ID == 0 || r1.Sets[0].Exercise != "bench press" {
@@ -254,7 +254,7 @@ func TestIncrementalLoggingScenario(t *testing.T) {
 				map[string]any{"exercise": "bench press", "weight_kg": 60, "reps": 8},
 				map[string]any{"exercise": "squat", "weight_kg": 130, "reps": 4},
 			},
-			"prescriptions":   []any{map[string]any{"exercise": "squat", "sets": 3}},
+			"prescriptions":   []any{map[string]any{"exercise": "squat", "target_sets": 3}},
 			"idempotency_key": "msg-3",
 		}, &r3)
 		if len(r3.Sets) != 2 || len(r3.Prescriptions) != 1 || r3.Prescriptions[0].TargetSets != 3 {
@@ -367,9 +367,9 @@ func TestValidationErrorsAreActionable(t *testing.T) {
 				map[string]any{"exercise": "bench press", "weight_kg": 60, "reps": 0},
 				map[string]any{"exercise": "bench press", "weight_kg": 60, "reps": 8, "rpe": 11},
 			},
-			"prescriptions": []any{map[string]any{"exercise": "squat", "sets": 0}},
+			"prescriptions": []any{map[string]any{"exercise": "squat", "target_sets": 0}},
 		})
-		mustContain(t, msg, "validation error", "sets[0].reps", "sets[1].rpe", "prescriptions[0].sets", "Nothing was written")
+		mustContain(t, msg, "validation error", "sets[0].reps", "sets[1].rpe", "prescriptions[0].target_sets", "Nothing was written")
 		if w := getWorkout(t, cs, ""); w.Exists {
 			t.Fatal("an invalid batch created a workout")
 		}
@@ -390,7 +390,7 @@ func TestValidationErrorsAreActionable(t *testing.T) {
 
 		// Inverted range from a legacy tool keeps its guidance.
 		msg = callErr(t, cs, "list_sessions", map[string]any{"from": "2026-08-07", "to": "2026-08-06"})
-		mustContain(t, msg, "from must not be after to")
+		mustContain(t, msg, "from: must not be after to")
 		if strings.Contains(strings.ToLower(msg), "sql") || strings.Contains(msg, "internal tool error") {
 			t.Fatalf("validation error masked or leaked internals: %q", msg)
 		}
@@ -591,18 +591,19 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 		"weekly_volume", "volume_by_muscle", "suggest_load", "set_exercise_note", "list_exercise_notes",
 		"set_exercise_group", "list_exercise_groups", "record_feedback", "volume_recommendation",
 		"set_volume_landmarks", "list_volume_landmarks",
+		"get_exercise_guide", "set_exercise_instructions", "list_set_videos", "delete_video",
 	}
 	for _, n := range required {
 		if byName[n] == nil {
 			t.Errorf("tool %s is not registered", n)
 		}
 	}
-	for _, n := range []string{"get_workout", "get_session", "list_sessions", "get_plan", "export_plan", "list_exercises", "exercise_stats", "training_summary", "exercise_history", "get_set"} {
+	for _, n := range []string{"get_workout", "get_session", "list_sessions", "get_plan", "export_plan", "list_exercises", "exercise_stats", "training_summary", "exercise_history", "get_set", "get_exercise_guide", "list_set_videos"} {
 		if tool := byName[n]; tool != nil && !tool.Annotations.ReadOnlyHint {
 			t.Errorf("%s should be read-only", n)
 		}
 	}
-	for _, n := range []string{"delete_set", "delete_session", "delete_plan", "update_set", "replace_plan", "rename_exercise", "remove_exercise_alias"} {
+	for _, n := range []string{"delete_set", "delete_session", "delete_plan", "update_set", "replace_plan", "rename_exercise", "remove_exercise_alias", "delete_video"} {
 		if tool := byName[n]; tool != nil && (tool.Annotations.ReadOnlyHint || !*tool.Annotations.DestructiveHint) {
 			t.Errorf("%s should be destructive", n)
 		}
@@ -622,6 +623,12 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 	mustContain(t, byName["start_session"].Description, "Get-or-create", "same thing")
 	mustContain(t, byName["get_workout"].Description, "without creating", "timezone", "stable id", "set_number")
 	mustContain(t, byName["delete_set"].Description, "confirm")
+	for _, n := range []string{"get_exercise_guide", "list_set_videos", "delete_video"} {
+		mustContain(t, byName[n].Description, "/api/v1/sets/{id}/videos", "/api/v1/exercises/{ref}/videos", "metadata only", "never the video content", "disabled")
+	}
+	mustContain(t, byName["set_exercise_instructions"].Description, "never invent")
+	mustContain(t, byName["delete_video"].Description, "confirm")
+	mustContain(t, logSets, "target_sets")
 
 	schema := schemaMap(t, byName["log_sets"].InputSchema)
 	setProps := schema["properties"].(map[string]any)["sets"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)

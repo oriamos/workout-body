@@ -22,15 +22,17 @@ type SessionItemInput struct {
 	PlanItemInput
 }
 type AdjustItemInput struct {
-	SessionID      int64    `json:"session_id" jsonschema:"Id of the workout (session) to adjust."`
-	Exercise       string   `json:"exercise" jsonschema:"Exercise already prescribed in this workout."`
-	TargetSets     *int     `json:"target_sets,omitempty" jsonschema:"New planned set count, 1-20. Omit to leave unchanged."`
-	RepMin         *int     `json:"rep_min,omitempty" jsonschema:"New lower bound of the rep range. Omit to leave unchanged."`
-	RepMax         *int     `json:"rep_max,omitempty" jsonschema:"New upper bound of the rep range. Omit to leave unchanged."`
-	TargetRPE      *float64 `json:"target_rpe,omitempty" jsonschema:"New target RPE 1-10. Omit to leave unchanged."`
-	TargetWeightKG *float64 `json:"target_weight_kg,omitempty" jsonschema:"New target load in kilograms, 0-2000. Omit to leave unchanged."`
-	TargetRIR      *float64 `json:"target_rir,omitempty" jsonschema:"New target reps in reserve 0-10. Omit to leave unchanged."`
-	Skipped        *bool    `json:"skipped,omitempty" jsonschema:"Mark the exercise as consciously skipped today, or unmark it."`
+	SessionID        int64    `json:"session_id" jsonschema:"Id of the workout (session) to adjust."`
+	Exercise         string   `json:"exercise" jsonschema:"Exercise already prescribed in this workout."`
+	TargetSets       *int     `json:"target_sets,omitempty" jsonschema:"New planned set count, 1-20. Omit to leave unchanged."`
+	RepMin           *int     `json:"rep_min,omitempty" jsonschema:"New lower bound of the rep range. Omit to leave unchanged."`
+	RepMax           *int     `json:"rep_max,omitempty" jsonschema:"New upper bound of the rep range. Omit to leave unchanged."`
+	TargetRPE        *float64 `json:"target_rpe,omitempty" jsonschema:"New target RPE 1-10. Omit to leave unchanged."`
+	TargetWeightKG   *float64 `json:"target_weight_kg,omitempty" jsonschema:"New target load in kilograms, 0-2000. Omit to leave unchanged."`
+	TargetRIR        *float64 `json:"target_rir,omitempty" jsonschema:"New target reps in reserve 0-10. Omit to leave unchanged."`
+	Skipped          *bool    `json:"skipped,omitempty" jsonschema:"Mark the exercise as consciously skipped today, or unmark it."`
+	Clear            []string `json:"clear,omitempty" jsonschema:"Targets to reset to 'not prescribed': any of target_weight_kg, target_rir. Cannot be combined with a new value for the same field."`
+	ExpectedRevision *int     `json:"expected_revision,omitempty" jsonschema:"The workout's revision from your last read (get_workout); rejected with a conflict if the workout changed since."`
 }
 type SwapItemInput struct {
 	SessionID   int64  `json:"session_id" jsonschema:"Id of the workout (session) to adjust."`
@@ -38,8 +40,9 @@ type SwapItemInput struct {
 	Replacement string `json:"replacement" jsonschema:"Exercise to use instead, keeping the same prescription."`
 }
 type RemoveItemInput struct {
-	SessionID int64  `json:"session_id" jsonschema:"Id of the workout (session) to adjust."`
-	Exercise  string `json:"exercise" jsonschema:"Exercise to drop from this workout's prescription."`
+	SessionID        int64  `json:"session_id" jsonschema:"Id of the workout (session) to adjust."`
+	Exercise         string `json:"exercise" jsonschema:"Exercise to drop from this workout's prescription."`
+	ExpectedRevision *int   `json:"expected_revision,omitempty" jsonschema:"The workout's revision from your last read (get_workout); rejected with a conflict if the workout changed since."`
 }
 type SaveAsPlanInput struct {
 	SessionID int64  `json:"session_id" jsonschema:"Id of the workout (session) to turn into a plan."`
@@ -99,16 +102,29 @@ func registerSessionPlanTools(r *registry, service *training.Service) {
 	setPositiveID(adjustSchema, "session_id")
 	setNonEmpty(adjustSchema, "exercise")
 	adjustSchema.MinProperties = jsonschema.Ptr(3)
+	prop(adjustSchema, "clear").Items.Enum = []any{"target_weight_kg", "target_rir"}
 	addTool(r, &mcp.Tool{
 		Name:        "adjust_session_exercise",
-		Description: "Change part of one exercise's prescription in a workout: set count, rep range, target load (kg), RPE, RIR, or whether it is skipped. Omitted fields stay as they are. Never creates completed sets.",
+		Description: "Change part of one exercise's prescription in a workout: target_sets, rep range, target load (kg), RPE 1-10, RIR 0-10, or whether it is skipped. Omitted fields stay as they are; use clear to remove a target load or RIR. Never creates completed sets. " + revisionRule,
 		InputSchema: adjustSchema,
 		Annotations: destructive("Adjust workout prescription", true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in AdjustItemInput) (*mcp.CallToolResult, ItemOut, error) {
-		return itemAfter(ctx, in.SessionID, in.Exercise, service.AdjustSessionItem(ctx, in.SessionID, in.Exercise, training.SessionItemPatch{
+		p := training.SessionItemPatch{
 			TargetSets: in.TargetSets, RepMin: in.RepMin, RepMax: in.RepMax, TargetRPE: in.TargetRPE,
 			TargetWeightKG: in.TargetWeightKG, TargetRIR: in.TargetRIR, Skipped: in.Skipped,
-		}))
+			ExpectedRevision: in.ExpectedRevision,
+		}
+		for i, c := range in.Clear {
+			switch c {
+			case "target_weight_kg":
+				p.ClearTargetWeight = true
+			case "target_rir":
+				p.ClearTargetRIR = true
+			default:
+				return nil, ItemOut{SessionID: in.SessionID, Exercise: in.Exercise}, toolError(invalidArg("clear["+strconv.Itoa(i)+"]", "must be one of target_weight_kg, target_rir"))
+			}
+		}
+		return itemAfter(ctx, in.SessionID, in.Exercise, service.AdjustSessionItem(ctx, in.SessionID, in.Exercise, p))
 	})
 
 	swapSchema := inputSchema[SwapItemInput]()
@@ -128,11 +144,11 @@ func registerSessionPlanTools(r *registry, service *training.Service) {
 	setNonEmpty(removeSchema, "exercise")
 	addTool(r, &mcp.Tool{
 		Name:        "remove_session_exercise",
-		Description: "Drop an exercise from a workout's prescription. Completed sets already logged for it are kept and reappear as off-plan work.",
+		Description: "Drop an exercise from a workout's prescription. Completed sets already logged for it are kept and reappear as off-plan work. " + revisionRule,
 		InputSchema: removeSchema,
 		Annotations: destructive("Remove workout exercise", true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in RemoveItemInput) (*mcp.CallToolResult, ItemOut, error) {
-		return itemAfter(ctx, in.SessionID, in.Exercise, service.RemoveSessionItem(ctx, in.SessionID, in.Exercise))
+		return itemAfter(ctx, in.SessionID, in.Exercise, service.RemoveSessionItemChecked(ctx, in.SessionID, in.Exercise, in.ExpectedRevision))
 	})
 
 	saveSchema := inputSchema[SaveAsPlanInput]()

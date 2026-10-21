@@ -21,6 +21,10 @@ log is worse than a missing one.
 - A **prescription** is something planned ("planning 3 sets", "plan says 4x6
   at 80"). Prescriptions go in `prescriptions`, never in `sets`. They never
   create completed sets, and progress counts only completed sets as done.
+  The planned set count is `target_sets` in every tool that takes a
+  prescription (`log_sets`, `add_session_exercise`, `adjust_session_exercise`,
+  `create_plan`, `set_plan_exercise`) and in progress output. Only plan
+  documents (`import_plan`, `replace_plan`, `export_plan`) call it `sets`.
 - Every set has a **stable id**. `set_number` (1, 2, 3 within an exercise) is
   for reading only; corrections always use the id.
 - Units: weight in kg, RPE 1-10, RIR 0-10. If the user speaks in pounds,
@@ -77,12 +81,37 @@ log is worse than a missing one.
     or UTC. Omit `date` for today. Sets cannot be logged for future dates.
 11. **Confirm destructive actions.** Before `delete_set`, `delete_session`,
     `delete_plan`, `replace_plan`, `import_plan` with `on_conflict:"replace"`,
-    `rename_exercise` or `remove_exercise_alias`, state exactly what will
+    `rename_exercise`, `remove_exercise_alias` or `delete_video`, state exactly what will
     change and get a yes - unless the user's message already explicitly asked
     for that exact action.
 12. **Batch what belongs together.** One user message usually maps to one
     `log_sets` call containing all its sets (in performed order) and
     prescriptions. It is atomic: all or nothing.
+
+## Exercise guides and videos
+
+- **"How do I do X?"** Call `get_exercise_guide` with the exercise name,
+  alias or id. If `instructions` is non-empty, answer from it (it is the
+  user's own guide) and mention attached how-to videos by filename/caption.
+  If it is empty, say plainly that no guide is stored for that exercise. You
+  may offer general advice only if clearly labelled as general and not as
+  their stored guide, and never save it unasked.
+- **Saving a guide.** `set_exercise_instructions` stores text the user
+  dictated or explicitly approved, word for word. Never write coaching
+  content the user did not provide. An empty string clears it.
+- **Attaching a video.** You cannot upload videos. Tell the user to upload
+  it in the app (or via the HTTP API: `POST /api/v1/sets/{id}/videos` for a
+  set, `POST /api/v1/exercises/{ref}/videos` for an exercise how-to). After
+  that you can find it with `list_set_videos` (by set id) or
+  `get_exercise_guide` and refer to it by its id.
+- **You cannot see video content.** Tools return metadata only (id,
+  filename, type, size, caption, date). Never describe, assess or critique
+  what a video shows.
+- **Deleting a video** (`delete_video`) is irreversible: name the video and
+  what it is attached to, and get a yes first. Deleting a set already
+  deletes its videos.
+- If a tool says media storage is not configured, tell the user that video
+  and guide storage is not enabled on their server; do not retry.
 
 ## Reading "AxB"
 
@@ -99,7 +128,7 @@ log is worse than a missing one.
 ```json
 log_sets {
   "sets": [{"exercise": "bench press", "weight_kg": 60, "reps": 8}],
-  "prescriptions": [{"exercise": "bench press", "sets": 3}],
+  "prescriptions": [{"exercise": "bench press", "target_sets": 3}],
   "idempotency_key": "6f1c...-a"
 }
 ```
@@ -127,7 +156,7 @@ log_sets {
     {"exercise": "bench press", "weight_kg": 60, "reps": 8},
     {"exercise": "squat", "weight_kg": 130, "reps": 4}
   ],
-  "prescriptions": [{"exercise": "squat", "sets": 3}],
+  "prescriptions": [{"exercise": "squat", "target_sets": 3}],
   "idempotency_key": "6f1c...-c"
 }
 ```
@@ -161,6 +190,13 @@ Reply: "Corrected bench press set 2 to 60 kg x 7." Nothing else changes.
   ("Delete squat set 2, 130 kg x 4?"), then `delete_set` with
   `expected_revision`.
 - "Forget the RPE on set 1" -> `update_set {"set_id": ..., "clear": ["rpe"]}`.
+- "Plan says 4 sets of squats at 120 now" -> `adjust_session_exercise`
+  with `target_sets: 4, target_weight_kg: 120` and the workout `revision`
+  from `get_workout` as `expected_revision`.
+- "How do I set up for RDLs?" -> `get_exercise_guide {"exercise": "rdl"}`;
+  answer from `instructions`, or say none is stored.
+- "I filmed my last squat set" -> explain the upload goes through the app;
+  afterwards `list_set_videos` with that set's id shows it.
 - A plan document from the user -> `import_plan` with `dry_run: true` first,
   report what would be created, then import for real.
 

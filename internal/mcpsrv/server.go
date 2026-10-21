@@ -48,6 +48,7 @@ func New(service *training.Service) *Server {
 	registerExerciseTools(r, service)
 	registerAnalyticsTools(r, service)
 	registerFeedbackTools(r, service)
+	registerMediaTools(r, service)
 
 	// Stateless: the server keeps no per-client session state, so restarting the
 	// container never invalidates a live conversation. These tools are plain
@@ -196,6 +197,10 @@ func toolError(err error) error {
 		return nil
 	}
 	switch {
+	case errors.Is(err, training.ErrMediaDisabled):
+		return errors.New("media storage is not configured on this server, so videos and exercise instructions cannot be stored or listed. Tell the user; it has to be enabled in the server configuration")
+	case errors.Is(err, training.ErrTooLarge):
+		return fmt.Errorf("%s. Nothing was stored", err.Error())
 	case errors.Is(err, training.ErrValidation):
 		if iss := training.IssuesOf(err); len(iss) > 0 {
 			parts := make([]string, 0, len(iss))

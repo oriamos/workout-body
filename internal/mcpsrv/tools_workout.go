@@ -39,7 +39,7 @@ func (in SetInput) toAdd(sessionID int64) training.AddSetInput {
 // creates completed sets.
 type PrescriptionInput struct {
 	Exercise       string   `json:"exercise" jsonschema:"Exercise name or alias the prescription is for."`
-	Sets           int      `json:"sets" jsonschema:"Planned number of sets, 1-20. Replaces the previously planned count for this exercise."`
+	TargetSets     int      `json:"target_sets" jsonschema:"Planned number of sets, 1-20. Replaces the previously planned count for this exercise. (The same field name appears in progress output.)"`
 	RepMin         int      `json:"rep_min,omitempty" jsonschema:"Lower end of the target rep range. Omit to keep any stored value / not prescribed."`
 	RepMax         int      `json:"rep_max,omitempty" jsonschema:"Upper end of the target rep range. For a fixed target use rep_min = rep_max."`
 	TargetWeightKG *float64 `json:"target_weight_kg,omitempty" jsonschema:"Planned load in kilograms, 0-2000. Omit if not prescribed."`
@@ -51,7 +51,7 @@ type PrescriptionInput struct {
 
 func (p PrescriptionInput) toItem() training.PlanItem {
 	it := training.PlanItem{
-		Exercise: p.Exercise, TargetSets: p.Sets, RepMin: p.RepMin, RepMax: p.RepMax,
+		Exercise: p.Exercise, TargetSets: p.TargetSets, RepMin: p.RepMin, RepMax: p.RepMax,
 		TargetWeightKG: p.TargetWeightKG, TargetRIR: p.TargetRIR, Notes: p.Notes, Superset: p.Superset,
 	}
 	if p.TargetRPE != nil {
@@ -211,7 +211,7 @@ func registerWorkoutTools(r *registry, service *training.Service) {
 	addTool(r, &mcp.Tool{
 		Name: "log_sets",
 		Description: "Primary write for incremental logging. In one atomic transaction: finds or creates the workout for the date, appends the given completed sets in order, and merges the given prescriptions (planned work). Nothing is written if any part is invalid. " +
-			"Prescriptions describe what is planned and never create completed sets: 'planning 3 sets of squats' is a prescription, '130 kg x 4' is a set. " +
+			"Prescriptions describe what is planned and never create completed sets: 'planning 3 sets of squats' is a prescription {exercise, target_sets: 3}, '130 kg x 4' is a set. " +
 			"Returns the persisted sets with their ids and stored values, the stored prescriptions, the updated workout (revision, progress), created=true if the workout was new, " +
 			"new_exercises for names that did not exist yet (each with similar existing names, so a typo can be caught and fixed with update_set or rename_exercise), and replayed=true when served from an earlier identical request. " +
 			unitsRule + " " + notRecordedRule + " " + idempotencyRule + " " + revisionRule + " " + workoutIsSession + " " + dateRule,

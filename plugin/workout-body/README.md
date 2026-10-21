@@ -4,7 +4,11 @@ Connects Claude Code to a personal workout-body MCP server (the engine v2
 `training-mcp` binary in this repository) and adds a `workout-logging` skill
 that tells the assistant how to log sets safely: read before guessing, never
 invent values, keep planned and completed sets apart, correct by set id, and
-retry writes idempotently.
+retry writes idempotently. It also covers exercise guides (answer "how do I
+do X" from the stored instructions, or say none exist) and videos (uploaded
+through the app/HTTP API, never through MCP; the assistant sees metadata only).
+Prescriptions use `target_sets` for the planned set count; only plan documents
+(`import_plan`/`replace_plan`/`export_plan`) use `sets`.
 
 Verification status is in [`../README.md`](../README.md). In short: the MCP
 server's tools are tested with the Go MCP SDK client; installing this plugin
