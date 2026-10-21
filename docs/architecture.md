@@ -3,7 +3,7 @@
 ```mermaid
 flowchart LR
     Assistant["AI assistant<br/>(interprets natural language)"] -->|MCP: Streamable HTTP or stdio| MCP["mcpsrv<br/>MCP tools"]
-    UI["Future custom UI<br/>(not built)"] -->|JSON over HTTP| API["apisrv<br/>/api/v1"]
+    UI["Web UI (web/, React)<br/>through a token-holding proxy"] -->|JSON over HTTP| API["apisrv<br/>/api/v1"]
     PWA["Upstream PWA<br/>(optional, legacy)"] --> WEB["websrv"]
     MCP --> SVC
     API --> SVC
@@ -31,6 +31,7 @@ data and concurrency behaviour.
 | `internal/config` | Environment configuration, timezone loading. |
 | `cmd/training-mcp` | Entry point: `serve` (default), `--stdio`, `backup`, `media-gc`. |
 | `plugin/workout-body` | Claude Code plugin: MCP config and assistant skill. |
+| `web/` | Hebrew RTL React UI. Talks to data only through a `WorkoutRepository`; `apiRepository.ts` implements it over `/api/v1` (a mock remains for design work). |
 
 ## Key decisions
 

@@ -7,6 +7,7 @@ import { VideoPlayer } from './Guide';
 import { useRest } from './RestTimer';
 import { kg } from '../lib/format';
 import { prefs } from '../lib/prefs';
+import { IS_MOCK } from '../data/source';
 
 export const TYPE_LABEL: Record<SetType, string> = { warmup: 'חימום', working: 'עבודה', drop: 'ירידה', failure: 'כישלון' };
 const TYPE_BADGE: Record<SetType, string> = { warmup: 'ח', working: '', drop: 'י', failure: 'כ' };
@@ -180,7 +181,7 @@ export function SetRow({ set, number, prev, ghost: ghostIn, exerciseName, restSe
                   <Button size="sm" variant="secondary" icon="refresh" onClick={() => fileRef.current?.click()}>החלף</Button>
                   <Button size="sm" variant="ghost" icon="trash" onClick={() => actions.removeVideo(set.id)}>הסר סרטון</Button>
                 </div>
-                <p className="small muted">בפרוטוטיפ הסרטון נשמר בדפדפן בלבד, ויימחק בטעינה מחדש.</p>
+                <p className="small muted">{IS_MOCK ? 'בפרוטוטיפ הסרטון נשמר בדפדפן בלבד, ויימחק בטעינה מחדש.' : 'הסרטון נשמר בשרת האימונים.'}</p>
               </div>
             ) : (
               <div>

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import type { AppData, Plan, SetEntry, Workout, WorkoutExercise } from '../data/types';
 import { applyMutation, findSet, type ExternalUpdate, type Mutation } from '../data/mutations';
 import { mockControls, repo } from '../data/repository';
+import { IS_MOCK } from '../data/source';
 import { buildSeed, buildTodayInProgress, TODAY } from '../data/seed';
 import { parseNum } from '../lib/format';
 import { exerciseById } from '../lib/stats';
@@ -156,17 +157,21 @@ function useStoreImpl() {
         dispatch({ t: 'pending', key, status: null });
         dispatch({ t: 'failed', key, m: null });
       },
-      () => {
+      (err: unknown) => {
         dispatch({ t: 'pending', key, status: 'failed' });
         dispatch({ t: 'failed', key, m });
+        // The engine explains why (validation, stale revision, ...). The mock's failures are silent by design.
+        if (!IS_MOCK && err instanceof Error && err.message) toast(err.message, 'error');
       },
     );
-  }, []);
+  }, [toast]);
 
   const mutate = useCallback((m: Mutation, key?: string, clearDraft?: string) => {
     dispatch({ t: 'mutate', m, clearDraft });
     persist(m, key ?? `k${keyN.current++}`);
   }, [persist]);
+
+  useEffect(() => repo.subscribeNotices?.((text) => toast(text, 'info')), [toast]);
 
   // Incoming changes from elsewhere. Never touches focus or open edits.
   useEffect(() => {
@@ -196,6 +201,11 @@ function useStoreImpl() {
       if (get().conflicts[setId]?.some((c) => c.field === field)) return true; // wait for resolution
       mutate({ t: 'updateSet', setId, patch: { [field]: r.value, by: 'me' } }, setId);
       dispatch({ t: 'clearDraft', setId, field });
+      // Enter commits and then blurs, which commits again before React re-renders: drop the draft from
+      // the ref now so the same edit is not saved twice.
+      const d = { ...get().drafts[setId] };
+      delete d[field];
+      ref.current = { ...get(), drafts: { ...get().drafts, [setId]: d } };
       return true;
     }
 
@@ -209,7 +219,10 @@ function useStoreImpl() {
         const found = findSet(get().data, setId);
         if (!found) return false;
         if (found.set.done) {
-          mutate({ t: 'updateSet', setId, patch: { done: false, by: 'me' } }, setId);
+          // Where only performed sets are stored (the engine), un-doing a set also drops its video there.
+          const dropVideo = !!found.set.video && !!repo.capabilities?.videoNeedsDoneSet;
+          mutate({ t: 'updateSet', setId, patch: { done: false, by: 'me', ...(dropVideo ? { video: null } : {}) } }, setId);
+          if (dropVideo) toast('הסט סומן כלא בוצע, והסרטון שלו נמחק מהשרת', 'info');
           return false;
         }
         const d = get().drafts[setId] ?? {};
@@ -248,14 +261,34 @@ function useStoreImpl() {
         if (!file.type.startsWith('video/')) return toast('אפשר לצרף רק קובץ וידאו', 'error');
         if (file.size > 300 * 1024 * 1024) return toast('הסרטון גדול מדי (עד 300MB)', 'error');
         const prevUrl = findSet(get().data, setId)?.set.video?.url;
-        if (prevUrl) URL.revokeObjectURL(prevUrl);
-        mutate({ t: 'updateSet', setId, patch: { video: { url: URL.createObjectURL(file), name: file.name }, by: 'me' } }, setId);
+        const key = `${setId}:video`;
+        dispatch({ t: 'pending', key, status: 'saving' });
+        repo.uploadVideo(setId, file).then(
+          (video) => {
+            dispatch({ t: 'pending', key, status: null });
+            if (prevUrl?.startsWith('blob:')) URL.revokeObjectURL(prevUrl);
+            mutate({ t: 'updateSet', setId, patch: { video, by: 'me' } }, setId);
+          },
+          (err: unknown) => {
+            dispatch({ t: 'pending', key, status: null });
+            toast(err instanceof Error && err.message ? err.message : 'העלאת הסרטון נכשלה', 'error');
+          },
+        );
       },
       removeVideo(setId: string) {
         const prev = findSet(get().data, setId)?.set.video;
         if (!prev) return;
         mutate({ t: 'updateSet', setId, patch: { video: null, by: 'me' } }, setId);
-        toast('הסרטון הוסר מהסט', 'info', { label: 'ביטול', run: () => mutate({ t: 'updateSet', setId, patch: { video: prev, by: 'me' } }, setId) });
+        // Deleting a stored video cannot be undone, so the real delete waits until the undo window closes.
+        let undone = false;
+        const timer = window.setTimeout(() => {
+          if (undone) return;
+          repo.deleteVideo(setId).then(
+            () => { if (prev.url.startsWith('blob:')) URL.revokeObjectURL(prev.url); },
+            (err: unknown) => toast(err instanceof Error && err.message ? err.message : 'מחיקת הסרטון נכשלה', 'error'),
+          );
+        }, 6500);
+        toast('הסרטון הוסר מהסט', 'info', { label: 'ביטול', run: () => { undone = true; window.clearTimeout(timer); mutate({ t: 'updateSet', setId, patch: { video: prev, by: 'me' } }, setId); } });
       },
       addSet(weId: string) {
         const set = blankSet();

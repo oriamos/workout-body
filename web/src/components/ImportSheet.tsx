@@ -4,6 +4,7 @@ import { Icon } from './Icon';
 import { useStore } from '../state/store';
 import { SAMPLE_BROKEN, SAMPLE_INVALID, SAMPLE_VALID, validatePlanJson, type ImportResult } from '../lib/planImport';
 import { navigate } from '../lib/router';
+import { IS_MOCK } from '../data/source';
 
 /** Power-user flow: pick or drop a file, preview, fix or confirm. Samples exist because the prototype has no real files. */
 export function ImportSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -67,14 +68,14 @@ export function ImportSheet({ open, onClose }: { open: boolean; onClose: () => v
               <Button variant="primary" size="sm" disabled={!text.trim()} onClick={() => run(text, 'JSON מודבק')}>תצוגה מקדימה</Button>
             </div>
           )}
-          <div className="samples">
+          {IS_MOCK && <div className="samples">
             <p className="muted small">בפרוטוטיפ אפשר לנסות דוגמאות במקום קובץ אמיתי:</p>
             <div className="demo-grid">
               <Button size="sm" onClick={() => run(SAMPLE_VALID, 'push-day.json')}>דוגמה תקינה</Button>
               <Button size="sm" onClick={() => run(SAMPLE_INVALID, 'pull-day.json')}>דוגמה עם שגיאות</Button>
               <Button size="sm" onClick={() => run(SAMPLE_BROKEN, 'legs.json')}>קובץ שבור</Button>
             </div>
-          </div>
+          </div>}
         </div>
       ) : (
         <div className="import-preview">

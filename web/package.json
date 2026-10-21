@@ -4,9 +4,15 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
+    "dev": "vite",
+    "dev:mock": "VITE_DATA_SOURCE=mock vite --host",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host"
+    "build:mock": "VITE_DATA_SOURCE=mock vite build",
+    "preview": "vite preview",
+    "test:unit": "node scripts/unit-api-mapping.mjs",
+    "seed:api": "node scripts/seed-api.mjs",
+    "test:api": "node scripts/api-flows.mjs",
+    "test:mock": "node scripts/flows.mjs"
   },
   "dependencies": {
     "@fontsource-variable/heebo": "^5.3.0",

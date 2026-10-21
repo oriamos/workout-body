@@ -5,6 +5,7 @@ import { IconButton, SaveStatus, Toasts } from './ui';
 import { SettingsSheet } from './SettingsSheet';
 import { DemoSheet } from './DemoSheet';
 import { RestProvider } from './RestTimer';
+import { IS_MOCK } from '../data/source';
 
 const TABS: { tab: Tab; label: string; icon: IconName; route: Parameters<typeof navigate>[0] }[] = [
   { tab: 'today', label: 'היום', icon: 'today', route: { name: 'today' } },
@@ -20,7 +21,7 @@ export function HeaderTools() {
   const { openSettings, openDemo } = useShell();
   return (
     <div className="head-tools">
-      <IconButton icon="flask" label="כלי הדגמה (פרוטוטיפ)" onClick={openDemo} />
+      {IS_MOCK && <IconButton icon="flask" label="כלי הדגמה (פרוטוטיפ)" onClick={openDemo} />}
       <IconButton icon="gear" label="הגדרות" onClick={openSettings} />
     </div>
   );
@@ -51,7 +52,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <Toasts />
         <SettingsSheet open={settings} onClose={() => setSettings(false)} />
-        <DemoSheet open={demo} onClose={() => setDemo(false)} />
+        {IS_MOCK && <DemoSheet open={demo} onClose={() => setDemo(false)} />}
       </RestProvider>
     </Ctx.Provider>
   );

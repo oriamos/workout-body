@@ -14,11 +14,12 @@ documented HTTP API. There are no teams, coaches, billing or organizations.
 2. **MCP server and plugin** — the assistant interprets natural language and
    calls structured tools. *Implemented* (server, tools, instructions). Client
    packaging status: see [plugin-setup.md](plugin-setup.md).
-3. **Custom UI** — mobile-first interface over the HTTP API. **Not built.** Out
-   of scope for this phase; the API contract in [http-api.md](http-api.md) is
-   what it will use. The upstream project's server-rendered PWA is still
-   shipped (optional, off by default) but is not the future UI and is not
-   extended.
+3. **Custom UI** — mobile-first Hebrew RTL interface in `web/`, connected to
+   the engine through the HTTP API ([http-api.md](http-api.md); setup and
+   limitations in [web/README.md](../web/README.md)). *Working* behind a local
+   token-holding proxy; public hosting (login, HTTPS) is not done yet. The
+   upstream project's server-rendered PWA is still shipped (optional, off by
+   default) but is not this UI and is not extended.
 
 Natural-language understanding lives only in the assistant. The engine receives
 explicit values and rejects anything invalid.
@@ -49,7 +50,7 @@ explicit values and rejects anything invalid.
 
 ## Non-goals (this phase)
 
-A custom frontend, in-app chatbot or LLM calls, multi-user accounts or RBAC,
+An in-app chatbot or LLM calls, multi-user accounts or RBAC,
 OAuth, billing, cloud sync, coaching features, automatic workout creation or
 reminders from a schedule, calendars beyond a Monday–Sunday week, a database
 server or message broker.

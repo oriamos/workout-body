@@ -5,6 +5,7 @@ import { href, navigate } from '../lib/router';
 import { kg, longDate } from '../lib/format';
 import { Icon } from './Icon';
 import { Chip, Ltr, Segmented, Sheet } from './ui';
+import { PLACEHOLDER_DEMO } from '../data/apiMapping';
 
 export function VideoPlayer({ src, poster, label }: { src: string; poster?: string; label: string }) {
   return <video className="video" src={src} poster={poster} controls playsInline preload="metadata" aria-label={label} />;
@@ -16,12 +17,12 @@ function HowToText({ ex }: { ex: Exercise }) {
   return (
     <div className="howto">
       <p className="howto-summary">{h.summary}</p>
-      <h4>ביצוע</h4>
-      <ol className="howto-steps">{h.steps.map((s) => <li key={s}>{s}</li>)}</ol>
-      <h4>כדאי לזכור</h4>
-      <ul className="howto-cues">{h.cues.map((c) => <li key={c}><Icon name="check" size={15} strokeWidth={2.4} /> {c}</li>)}</ul>
-      <h4>טעויות נפוצות</h4>
-      <ul className="howto-cues bad">{h.mistakes.map((c) => <li key={c}><Icon name="alert" size={15} /> {c}</li>)}</ul>
+      {h.steps.length > 0 && <><h4>ביצוע</h4>
+      <ol className="howto-steps">{h.steps.map((s) => <li key={s}>{s}</li>)}</ol></>}
+      {h.cues.length > 0 && <><h4>כדאי לזכור</h4>
+      <ul className="howto-cues">{h.cues.map((c) => <li key={c}><Icon name="check" size={15} strokeWidth={2.4} /> {c}</li>)}</ul></>}
+      {h.mistakes.length > 0 && <><h4>טעויות נפוצות</h4>
+      <ul className="howto-cues bad">{h.mistakes.map((c) => <li key={c}><Icon name="alert" size={15} /> {c}</li>)}</ul></>}
       <p className="caveat">הסבר כללי ולא תחליף למאמן. אם משהו כואב, עצור.</p>
     </div>
   );
@@ -69,8 +70,8 @@ export function GuideTabs({ ex, onOpenWorkout }: { ex: Exercise; onOpenWorkout?:
         {tab === 'how' && <HowToText ex={ex} />}
         {tab === 'demo' && (
           <div className="demo">
-            {ex.demoVideo ? <VideoPlayer src={ex.demoVideo} poster="/demo-poster.jpg" label={`סרטון הדגמה: ${ex.name}`} /> : <p className="muted">אין סרטון הדגמה לתרגיל הזה.</p>}
-            <p className="muted small"><Chip tone="warn" className="inline-chip">ממלא מקום</Chip> בפרוטוטיפ זה אותו קטע לדוגמה בכל התרגילים. בגרסה אמיתית יגיע כאן סרטון ההדגמה של התרגיל.</p>
+            {ex.demoVideo ? <VideoPlayer src={ex.demoVideo} poster={ex.demoVideo === PLACEHOLDER_DEMO ? '/demo-poster.jpg' : undefined} label={`סרטון הדגמה: ${ex.name}`} /> : <p className="muted">אין סרטון הדגמה לתרגיל הזה.</p>}
+            {ex.demoVideo === PLACEHOLDER_DEMO && <p className="muted small"><Chip tone="warn" className="inline-chip">ממלא מקום</Chip> בפרוטוטיפ זה אותו קטע לדוגמה בכל התרגילים. בגרסה אמיתית יגיע כאן סרטון ההדגמה של התרגיל.</p>}
           </div>
         )}
         {tab === 'mine' && <MyVideos exerciseId={ex.id} onOpenWorkout={onOpenWorkout} />}

@@ -1,5 +1,6 @@
 import { Sheet, Segmented } from './ui';
 import { setPref, usePrefs } from '../lib/prefs';
+import { IS_MOCK } from '../data/source';
 
 /** Secondary and deliberately small. Only the choices the prototype can honour. */
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -28,7 +29,11 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           </div>
           <Segmented label="טיימר מנוחה" value={autoRest ? 'on' : 'off'} onChange={(v) => setPref('autoRest', v === 'on')} options={[{ value: 'on', label: 'פועל' }, { value: 'off', label: 'כבוי' }]} />
         </div>
-        <p className="muted small">פרוטוטיפ: הנתונים לדוגמה ונשמרים בזיכרון הדף בלבד. טעינה מחדש מחזירה אותם למצב ההתחלתי.</p>
+        {IS_MOCK ? (
+          <p className="muted small">פרוטוטיפ: הנתונים לדוגמה ונשמרים בזיכרון הדף בלבד. טעינה מחדש מחזירה אותם למצב ההתחלתי.</p>
+        ) : (
+          <p className="muted small">אימונים, סטים, תוכניות וסרטונים נשמרים בשרת האימונים. ציוד, זמן מנוחה, שעת התחלה, תרגיל שנוסף בלי סט והערה לתרגיל שאינו בתוכנית נשמרים בדפדפן הזה בלבד.</p>
+        )}
       </div>
     </Sheet>
   );

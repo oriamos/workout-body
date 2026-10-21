@@ -48,7 +48,7 @@ export function SessionSummary({ workout, mode }: { workout: Workout; mode: 'tod
       <dl className="summary-stats">
         <div><dt>נפח שהושלם</dt><dd><Ltr>{vol(t.volume)}</Ltr> <small>ק״ג</small></dd></div>
         <div><dt>תרגילים</dt><dd><Ltr>{exDone}/{workout.exercises.length}</Ltr> <small>הושלמו</small></dd></div>
-        <div><dt>{mode === 'today' ? 'התחלה' : 'שעה'}</dt><dd><Ltr>{workout.startedAt}</Ltr></dd></div>
+        <div><dt>{mode === 'today' ? 'התחלה' : 'שעה'}</dt><dd><Ltr>{workout.startedAt || '—'}</Ltr></dd></div>
       </dl>
       {(prs.length > 0 || skipped > 0 || notDone > 0) && (
         <ul className="summary-notes">

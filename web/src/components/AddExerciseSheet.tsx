@@ -19,7 +19,7 @@ export function AddExerciseSheet({ open, onClose, onPick, exclude = [] }: { open
           <li key={e.id}>
             <button type="button" onClick={() => { onPick(e.id); setQ(''); onClose(); }}>
               <Ltr className="pick-name">{e.name}</Ltr>
-              <span className="pick-meta">{MUSCLE[e.muscle]} · {e.equipment}</span>
+              <span className="pick-meta">{MUSCLE[e.muscle]}{e.equipment ? ` · ${e.equipment}` : ''}</span>
             </button>
           </li>
         ))}

@@ -67,7 +67,7 @@ and are what this project changed.
 
 | Item | Note |
 |---|---|
-| Custom UI | Not built, by design in this phase. |
+| Production hosting of the web UI | It runs behind the Vite proxy that holds the token; public hosting needs a reverse proxy with its own login and HTTPS. |
 | OAuth, multi-user, RBAC | Not needed for the single-user case. |
 | Automatic workout creation or reminders from a schedule | By design a schedule is plan data plus a read-only view; nothing is created or sent on its own. |
 | Workout-level delete over HTTP/MCP, resumable uploads, webhooks | Not provided. |

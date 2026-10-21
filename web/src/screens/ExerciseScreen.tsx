@@ -77,7 +77,7 @@ export function ExerciseScreen({ id }: { id: string }) {
       <PageHeader
         title={<Ltr>{ex.name}</Ltr>}
         back={{ label: 'חזרה', onClick: () => goBack({ name: 'progress' }) }}
-        sub={<><Chip>{MUSCLE[ex.muscle]}</Chip><Chip>{ex.equipment}</Chip></>}
+        sub={<><Chip>{MUSCLE[ex.muscle]}</Chip>{ex.equipment && <Chip>{ex.equipment}</Chip>}</>}
       />
       {sessions.length === 0 ? (
         <EmptyState icon="progress" title="עוד אין ביצועים לתרגיל הזה">אחרי הסט הראשון יופיעו כאן גרף, שיאים והיסטוריה.</EmptyState>

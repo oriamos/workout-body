@@ -1,7 +1,7 @@
 # HTTP API reference
 
-A JSON API over the same engine the MCP tools use, intended for the future
-custom UI. It is **implemented and tested**; no UI exists yet.
+A JSON API over the same engine the MCP tools use. It is **implemented and
+tested**, and the web UI in `web/` uses it.
 
 * Machine-readable contract: [`internal/apisrv/openapi.yaml`](../internal/apisrv/openapi.yaml)
   (OpenAPI 3.1). The running server also serves it at `GET /api/v1/openapi.yaml`.
@@ -49,6 +49,7 @@ There is exactly one workout per date.
 | `GET /config` | Timezone, today, media settings, API version |
 | `GET /workouts?from&to&limit` | Workout summaries, newest first |
 | `GET /workouts/{date}` | Workout with sets and planned-vs-completed `progress`; `404` if none (never creates) |
+| `PUT /workouts/{date}` | Get or create the (empty) workout of a date; idempotent (`201` created, `200` existing) |
 | `POST /workouts/{date}/sets` | Append sets and/or merge prescriptions; creates the workout on first write |
 | `POST /workouts/{date}/plan` | Make the workout follow a plan |
 | `PATCH` / `DELETE /workouts/{date}/prescriptions/{exercise}` | Adjust / remove one prescription |
@@ -57,7 +58,7 @@ There is exactly one workout per date.
 | `GET` / `PUT` / `DELETE /plans/{id}`, `GET /plans/{id}/export` | Read, replace, delete, export |
 | `PUT /plans/{id}/schedule` | Set or clear (`null`) a plan's fixed schedule; `If-Match` required |
 | `GET /schedule?from&to` | Schedule view: what is due on which day, what was done, weekly tallies |
-| `GET /exercises`, `GET` / `PATCH /exercises/{ref}` | Exercises (with aliases); rename |
+| `GET /exercises`, `POST /exercises`, `GET` / `PATCH /exercises/{ref}` | Exercises (with aliases); create (or get existing, near misses reported); rename |
 | `POST /exercises/{ref}/aliases`, `DELETE …/aliases/{alias}` | Manage aliases |
 | `GET /exercises/{ref}/history`, `…/stats` | Progression ([analytics.md](analytics.md)) |
 | `GET /stats/summary?from&to` | Training overview |

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 import { useStore } from '../state/store';
+import { IS_MOCK } from '../data/source';
 
 type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; size?: 'sm' | 'md'; icon?: IconName };
 export function Button({ variant = 'secondary', size = 'md', icon, className = '', children, ...rest }: BtnProps) {
@@ -201,5 +202,6 @@ export function SaveStatus() {
     );
   if (dirty) return <span className="status status-warn"><span className="dot" /> שינויים לא שמורים</span>;
   if (saving) return <span className="status"><span className="spin" /> שומר…</span>;
+  if (!IS_MOCK) return <span className="status" title="השינויים נשמרו בשרת האימונים"><Icon name="check" size={14} /> נשמר</span>;
   return <span className="status" title="פרוטוטיפ: השינויים נשמרים בזיכרון הדפדפן בלבד"><Icon name="check" size={14} /> נשמר (מקומי)</span>;
 }

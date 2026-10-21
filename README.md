@@ -19,7 +19,7 @@ assistant through **MCP** and to a future mobile app through a documented
 | Engine (rules, persistence, plans, workouts, sets, analytics) | **Working, tested** |
 | MCP server (50 tools, HTTP + stdio) and Claude Code plugin files | **Working, tested** with the official Go MCP client. Installing the plugin in Claude Code, and other clients, are **not verified** — see [docs/plugin-setup.md](docs/plugin-setup.md) |
 | HTTP JSON API with OpenAPI spec | **Working, tested** |
-| Custom mobile UI | **Not built.** Planned for a later phase. The API is the contract it will use |
+| Web UI (`web/`, Hebrew RTL, mobile-first) | **Working against the engine** through the HTTP API, verified by a browser end-to-end flow against a real server. Runs behind a local proxy that holds the token; **not yet hardened for public hosting** (no login of its own) — see [web/README.md](web/README.md) |
 | Upstream PWA (`internal/websrv`) | Inherited, optional, off by default; **not** the future UI and not extended |
 
 ## What you can do
@@ -68,7 +68,7 @@ instructions plus how-to videos per exercise.
 ```mermaid
 flowchart LR
     Assistant["AI assistant"] -->|MCP| MCP["mcpsrv"]
-    UI["Future custom UI<br/>(not built)"] -->|JSON| API["apisrv /api/v1"]
+    UI["Web UI (web/)<br/>via token-holding proxy"] -->|JSON| API["apisrv /api/v1"]
     MCP --> SVC["training.Service<br/>rules · validation · analytics"]
     API --> SVC
     SVC --> SQL[("SQLite<br/>+ media files")]
@@ -105,6 +105,7 @@ curl -s -X POST localhost:8080/api/v1/workouts/today/sets \
 curl -s -H "Authorization: Bearer $MCP_BEARER_TOKEN" localhost:8080/api/v1/workouts/today
 ```
 
+Run the web UI against it: [web/README.md](web/README.md) (`cd web && npm install && WORKOUT_API_TOKEN="$MCP_BEARER_TOKEN" npm run dev`).
 Connect an assistant: [docs/plugin-setup.md](docs/plugin-setup.md). Docker:
 [docs/deployment.md](docs/deployment.md).
 
@@ -135,6 +136,7 @@ Flags: `--addr :8080`, `--stdio`. Commands: `backup <file>`, `media-gc`. See
 * [Development](docs/development.md) · [Deployment](docs/deployment.md) ·
   [Backup and restore](docs/backup-restore.md) · [Migrations](docs/migrations.md)
 * [Audit of the upstream project and feature matrix](docs/audit.md)
+* [Web UI](web/README.md)
 * [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Attribution](NOTICE.md)
 
 ## Security in one paragraph
