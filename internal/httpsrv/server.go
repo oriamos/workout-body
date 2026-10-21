@@ -58,8 +58,19 @@ type WebUI struct {
 }
 
 func Routes(mcp http.Handler, authDisabled bool, token string, web *WebUI) http.Handler {
+	return RoutesWithAPI(mcp, nil, authDisabled, token, web)
+}
+
+// RoutesWithAPI is Routes plus the JSON API mounted at /api/v1/. The API is
+// authenticated with the same bearer token but is NOT wrapped in the 1 MiB
+// body cap: video uploads are larger, so the API enforces its own per-route
+// limits.
+func RoutesWithAPI(mcp, api http.Handler, authDisabled bool, token string, web *WebUI) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", MaxBody(Bearer(token, authDisabled, mcp)))
+	if api != nil {
+		mux.Handle("/api/v1/", Bearer(token, authDisabled, api))
+	}
 	if web != nil && web.Handler != nil && web.BasePath != "" {
 		// The secret path is the outer gate, but the same bearer still guards
 		// these routes so the app is never reachable from inside the network

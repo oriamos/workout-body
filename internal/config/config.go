@@ -34,7 +34,12 @@ type Config struct {
 
 const defaultMaxVideoMB = 200
 
-func Load(addr string) (Config, error) {
+func Load(addr string) (Config, error) { return LoadFor(addr, false) }
+
+// LoadFor is Load for a specific run mode. In stdio mode the process is
+// launched by the client over a pipe, so there is no network endpoint to
+// protect and no bearer token is required.
+func LoadFor(addr string, stdio bool) (Config, error) {
 	if addr == "" {
 		addr = ":8080"
 	}
@@ -52,7 +57,7 @@ func Load(addr string) (Config, error) {
 	}
 	disabled := os.Getenv("MCP_AUTH_DISABLED") == "1"
 	token := os.Getenv("MCP_BEARER_TOKEN")
-	if token == "" && !disabled {
+	if token == "" && !disabled && !stdio {
 		return Config{}, errors.New("MCP_BEARER_TOKEN is required unless MCP_AUTH_DISABLED=1")
 	}
 	tz := strings.TrimSpace(os.Getenv("WORKOUT_TIMEZONE"))

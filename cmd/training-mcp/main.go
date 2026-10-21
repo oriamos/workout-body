@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -11,20 +13,62 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fullfran/training-mcp/internal/apisrv"
 	"github.com/fullfran/training-mcp/internal/config"
 	"github.com/fullfran/training-mcp/internal/httpsrv"
 	"github.com/fullfran/training-mcp/internal/mcpsrv"
+	"github.com/fullfran/training-mcp/internal/mediastore"
 	"github.com/fullfran/training-mcp/internal/sqlitestore"
 	"github.com/fullfran/training-mcp/internal/training"
 	"github.com/fullfran/training-mcp/internal/websrv"
 )
 
-func address(args []string) string {
-	fs := flag.NewFlagSet("training-mcp", flag.ContinueOnError)
-	v := fs.String("addr", ":8080", "")
-	_ = fs.Parse(args)
-	return *v
+// options are the parsed command line.
+type options struct {
+	addr  string
+	stdio bool
+	// command is "serve" (default), "backup" or "media-gc".
+	command string
+	// arg is the subcommand argument (backup destination).
+	arg string
 }
+
+func parseArgs(args []string) (options, error) {
+	fs := flag.NewFlagSet("training-mcp", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	addr := fs.String("addr", ":8080", "HTTP listen address")
+	stdio := fs.Bool("stdio", false, "serve MCP over stdin/stdout instead of HTTP")
+	if err := fs.Parse(args); err != nil {
+		return options{}, err
+	}
+	o := options{addr: *addr, stdio: *stdio, command: "serve"}
+	if rest := fs.Args(); len(rest) > 0 {
+		o.command = rest[0]
+		switch o.command {
+		case "backup":
+			if len(rest) != 2 {
+				return o, errors.New("usage: training-mcp backup <destination.db>")
+			}
+			o.arg = rest[1]
+		case "media-gc":
+			if len(rest) != 1 {
+				return o, errors.New("usage: training-mcp media-gc")
+			}
+		default:
+			return o, fmt.Errorf("unknown command %q (commands: backup, media-gc)", o.command)
+		}
+	}
+	return o, nil
+}
+
+func address(args []string) string {
+	o, err := parseArgs(args)
+	if err != nil {
+		return ":8080"
+	}
+	return o.addr
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		log.Print(err)
@@ -42,8 +86,11 @@ func runWithSignals(args []string, signals ...os.Signal) error {
 }
 
 func runWithContext(ctx context.Context, args []string) error {
-	addr := address(args)
-	cfg, err := config.Load(addr)
+	opts, err := parseArgs(args)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.LoadFor(opts.addr, opts.stdio || opts.command != "serve")
 	if err != nil {
 		return err
 	}
@@ -55,8 +102,36 @@ func runWithContext(ctx context.Context, args []string) error {
 		return err
 	}
 	defer store.Close()
-	service := training.NewService(store, time.Now)
+	blobs, err := mediastore.New(cfg.MediaDir)
+	if err != nil {
+		return fmt.Errorf("media directory: %w", err)
+	}
+	service := training.NewService(store, time.Now).
+		WithLocation(cfg.Location).
+		WithMedia(store, blobs, cfg.MaxVideoBytes)
+
+	switch opts.command {
+	case "backup":
+		if err := service.Snapshot(ctx, opts.arg); err != nil {
+			return fmt.Errorf("backup to %s: %w", opts.arg, err)
+		}
+		log.Printf("database snapshot written to %s (videos are not included: copy %s separately)", opts.arg, cfg.MediaDir)
+		return nil
+	case "media-gc":
+		n, err := service.PurgeOrphanBlobs(ctx)
+		if err != nil {
+			return err
+		}
+		log.Printf("removed %d orphaned video file(s)", n)
+		return nil
+	}
+
 	mcpServer := mcpsrv.New(service)
+	if opts.stdio {
+		// stdout carries the protocol; the standard logger writes to stderr.
+		log.Printf("serving MCP over stdio (timezone %s)", cfg.Timezone)
+		return mcpServer.RunStdio(ctx)
+	}
 	logger := log.Default()
 	httpsrv.WarningIfDisabled(cfg.AuthDisabled, logger)
 
@@ -70,8 +145,9 @@ func runWithContext(ctx context.Context, args []string) error {
 		logger.Printf("web UI mounted under a secret base path (%d chars)", len(cfg.WebBasePath))
 	}
 
-	handler := httpsrv.Routes(mcpServer.Handler(), cfg.AuthDisabled, cfg.Token, web)
-	httpServer := &http.Server{Addr: cfg.Addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	handler := httpsrv.RoutesWithAPI(mcpServer.Handler(), apisrv.New(service).Handler(), cfg.AuthDisabled, cfg.Token, web)
+	httpServer := &http.Server{Addr: cfg.Addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
+	logger.Printf("listening on %s (timezone %s, database %s)", cfg.Addr, cfg.Timezone, cfg.DBPath)
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.ListenAndServe() }()
 	select {
