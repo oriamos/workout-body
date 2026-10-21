@@ -503,7 +503,7 @@ func TestStoreSessionItemsAreASnapshotOfThePlan(t *testing.T) {
 	if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: session.ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(8), RPE: fp(8)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RemoveSessionItem(ctx, session.ID, "banca"); err != nil {
+	if err := store.RemoveSessionItem(ctx, session.ID, "banca", nil); err != nil {
 		t.Fatal(err)
 	}
 	progress, _ = store.SessionProgress(ctx, session.ID)
@@ -516,7 +516,7 @@ func TestStoreSessionItemsAreASnapshotOfThePlan(t *testing.T) {
 	if offPlan == nil || offPlan.TargetSets != 0 || offPlan.DoneSets != 1 {
 		t.Fatalf("removed exercise should resurface as off-plan work: %#v", progress)
 	}
-	if err := store.RemoveSessionItem(ctx, session.ID, "no existe"); !errors.Is(err, training.ErrNotFound) {
+	if err := store.RemoveSessionItem(ctx, session.ID, "no existe", nil); !errors.Is(err, training.ErrNotFound) {
 		t.Fatalf("removing an absent item = %v, want not found", err)
 	}
 }

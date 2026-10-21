@@ -108,7 +108,7 @@ func (s *Service) StartPlannedSession(ctx context.Context, date string, planID i
 // exactly as AddSet normalizes them, so a plan item always matches the sets
 // logged against it.
 func (s *Service) CreatePlan(ctx context.Context, p Plan) (Plan, error) {
-	if err := validatePlan(&p); err != nil {
+	if err := validatePlan(&p, "target_sets"); err != nil {
 		return Plan{}, err
 	}
 	return s.store.CreatePlan(ctx, p)
@@ -124,27 +124,30 @@ func (s *Service) ListPlans(ctx context.Context) ([]Plan, error) {
 
 func (s *Service) GetPlan(ctx context.Context, id int64) (Plan, error) {
 	if id <= 0 {
-		return Plan{}, ErrValidation
+		return Plan{}, invalid("plan_id", "must be a positive id")
 	}
 	return s.store.GetPlan(ctx, id)
 }
 
 // UpdatePlan edits a plan's name or notes without touching its exercises.
 func (s *Service) UpdatePlan(ctx context.Context, id int64, p PlanPatch) error {
-	if id <= 0 || p.Empty() {
-		return ErrValidation
+	if id <= 0 {
+		return invalid("plan_id", "must be a positive id")
+	}
+	if p.Empty() {
+		return invalid("", "provide a name or notes to change")
 	}
 	if p.Name != nil {
 		v := strings.TrimSpace(*p.Name)
 		if v == "" {
-			return ErrValidation
+			return invalid("name", "must not be empty")
 		}
 		p.Name = &v
 	}
 	if p.Notes != nil {
 		v := strings.TrimSpace(*p.Notes)
 		if len(v) > maxPlanNotesLen {
-			return ErrValidation
+			return invalid("notes", "must be at most %d characters", maxPlanNotesLen)
 		}
 		p.Notes = &v
 	}
@@ -154,10 +157,13 @@ func (s *Service) UpdatePlan(ctx context.Context, id int64, p PlanPatch) error {
 // validPlanItem holds the rules a prescription must satisfy, shared by plan
 // creation, plan editing and in-session adjustments so none can drift.
 func validPlanItem(it *PlanItem) error {
-	return issues(planItemIssues(it, ""))
+	return issues(planItemIssues(it, "", "target_sets"))
 }
 
-func planItemIssues(it *PlanItem, path string) []Issue {
+// planItemIssues validates one prescription. setsField names the planned-set
+// count in messages: plan documents call it "sets", prescriptions and
+// create_plan call it "target_sets".
+func planItemIssues(it *PlanItem, path, setsField string) []Issue {
 	f := func(name string) string {
 		if path == "" {
 			return name
@@ -177,7 +183,7 @@ func planItemIssues(it *PlanItem, path string) []Issue {
 		add("exercise", "must be at most %d characters", maxExerciseLen)
 	}
 	if it.TargetSets <= 0 || it.TargetSets > 20 {
-		add("sets", "must be between 1 and 20, got %d", it.TargetSets)
+		add(setsField, "must be between 1 and 20, got %d", it.TargetSets)
 	}
 	if it.RepMin < 0 || it.RepMax < 0 || it.RepMin > MaxReps || it.RepMax > MaxReps {
 		add("reps", "rep_min and rep_max must be between 0 and %d (0 means not prescribed)", MaxReps)
@@ -204,7 +210,7 @@ func planItemIssues(it *PlanItem, path string) []Issue {
 
 // validatePlan normalizes and checks a whole plan, collecting every problem.
 // Exercises must be unique within a plan.
-func validatePlan(p *Plan) error {
+func validatePlan(p *Plan, setsField string) error {
 	p.Name = strings.TrimSpace(p.Name)
 	p.Notes = strings.TrimSpace(p.Notes)
 	var out []Issue
@@ -221,7 +227,7 @@ func validatePlan(p *Plan) error {
 	}
 	seen := map[string]int{}
 	for i := range p.Items {
-		out = append(out, planItemIssues(&p.Items[i], fmt.Sprintf("items[%d]", i))...)
+		out = append(out, planItemIssues(&p.Items[i], fmt.Sprintf("items[%d]", i), setsField)...)
 		if first, dup := seen[p.Items[i].Exercise]; dup && p.Items[i].Exercise != "" {
 			out = append(out, Issue{Field: fmt.Sprintf("items[%d].exercise", i),
 				Message: fmt.Sprintf("duplicates items[%d] (%q); list each exercise once and use sets for volume", first, p.Items[i].Exercise)})
@@ -235,7 +241,7 @@ func validatePlan(p *Plan) error {
 // Editing a template does not touch sessions already started from it.
 func (s *Service) SetPlanItem(ctx context.Context, planID int64, it PlanItem) error {
 	if planID <= 0 {
-		return ErrValidation
+		return invalid("plan_id", "must be a positive id")
 	}
 	if err := validPlanItem(&it); err != nil {
 		return err
@@ -245,8 +251,11 @@ func (s *Service) SetPlanItem(ctx context.Context, planID int64, it PlanItem) er
 
 func (s *Service) RemovePlanItem(ctx context.Context, planID int64, exercise string) error {
 	exercise = s.canon(ctx, exercise)
-	if planID <= 0 || exercise == "" {
-		return ErrValidation
+	if planID <= 0 {
+		return invalid("plan_id", "must be a positive id")
+	}
+	if exercise == "" {
+		return invalid("exercise", "is required")
 	}
 	return s.store.RemovePlanItem(ctx, planID, exercise)
 }
@@ -254,15 +263,21 @@ func (s *Service) RemovePlanItem(ctx context.Context, planID int64, exercise str
 // MovePlanItem shifts an exercise one place up or down in the plan's order.
 func (s *Service) MovePlanItem(ctx context.Context, planID int64, exercise string, delta int) error {
 	exercise = s.canon(ctx, exercise)
-	if planID <= 0 || exercise == "" || (delta != 1 && delta != -1) {
-		return ErrValidation
+	if planID <= 0 {
+		return invalid("plan_id", "must be a positive id")
+	}
+	if exercise == "" {
+		return invalid("exercise", "is required")
+	}
+	if delta != 1 && delta != -1 {
+		return invalid("direction", "must move the exercise exactly one place up or down")
 	}
 	return s.store.MovePlanItem(ctx, planID, exercise, delta)
 }
 
 func (s *Service) DeletePlan(ctx context.Context, id int64) error {
 	if id <= 0 {
-		return ErrValidation
+		return invalid("plan_id", "must be a positive id")
 	}
 	return s.store.DeletePlan(ctx, id)
 }
@@ -271,7 +286,7 @@ func (s *Service) DeletePlan(ctx context.Context, id int64) error {
 // prescription. Adjusting a session never touches the plan it came from.
 func (s *Service) SetSessionItem(ctx context.Context, sessionID int64, it PlanItem) error {
 	if sessionID <= 0 {
-		return ErrValidation
+		return invalid("session_id", "must be a positive id")
 	}
 	if err := validPlanItem(&it); err != nil {
 		return err
@@ -283,29 +298,45 @@ func (s *Service) SetSessionItem(ctx context.Context, sessionID int64, it PlanIt
 // the RPE, or whether the exercise is skipped today.
 func (s *Service) AdjustSessionItem(ctx context.Context, sessionID int64, exercise string, p SessionItemPatch) error {
 	exercise = s.canon(ctx, exercise)
-	if sessionID <= 0 || exercise == "" || p.Empty() {
-		return ErrValidation
+	var iss []Issue
+	if sessionID <= 0 {
+		iss = append(iss, Issue{Field: "session_id", Message: "must be a positive id"})
+	}
+	if exercise == "" {
+		iss = append(iss, Issue{Field: "exercise", Message: "is required"})
+	}
+	if p.Empty() {
+		iss = append(iss, Issue{Message: "provide at least one field to change"})
 	}
 	if p.TargetSets != nil && (*p.TargetSets <= 0 || *p.TargetSets > 20) {
-		return ErrValidation
+		iss = append(iss, Issue{Field: "target_sets", Message: "must be between 1 and 20"})
 	}
-	if p.RepMin != nil && *p.RepMin < 0 {
-		return ErrValidation
+	if p.RepMin != nil && (*p.RepMin < 0 || *p.RepMin > MaxReps) {
+		iss = append(iss, Issue{Field: "rep_min", Message: fmt.Sprintf("must be between 0 and %d", MaxReps)})
 	}
-	if p.RepMax != nil && *p.RepMax < 0 {
-		return ErrValidation
+	if p.RepMax != nil && (*p.RepMax < 0 || *p.RepMax > MaxReps) {
+		iss = append(iss, Issue{Field: "rep_max", Message: fmt.Sprintf("must be between 0 and %d", MaxReps)})
 	}
 	if p.RepMin != nil && p.RepMax != nil && *p.RepMax > 0 && *p.RepMin > *p.RepMax {
-		return fmt.Errorf("%w: rep range is inverted", ErrValidation)
+		iss = append(iss, Issue{Field: "rep_min", Message: "must not exceed rep_max"})
 	}
-	if p.TargetRPE != nil && *p.TargetRPE != 0 && (*p.TargetRPE < 1 || *p.TargetRPE > 10) {
-		return ErrValidation
+	if p.TargetRPE != nil && *p.TargetRPE != 0 && (!finite(*p.TargetRPE) || *p.TargetRPE < 1 || *p.TargetRPE > 10) {
+		iss = append(iss, Issue{Field: "target_rpe", Message: "must be between 1 and 10 (0 clears it)"})
 	}
 	if p.TargetWeightKG != nil && (!finite(*p.TargetWeightKG) || *p.TargetWeightKG < 0 || *p.TargetWeightKG > MaxWeightKG) {
-		return invalid("target_weight_kg", "must be between 0 and %d kg", MaxWeightKG)
+		iss = append(iss, Issue{Field: "target_weight_kg", Message: fmt.Sprintf("must be between 0 and %d kg", MaxWeightKG)})
 	}
 	if p.TargetRIR != nil && (!finite(*p.TargetRIR) || *p.TargetRIR < 0 || *p.TargetRIR > 10) {
-		return invalid("target_rir", "must be between 0 and 10")
+		iss = append(iss, Issue{Field: "target_rir", Message: "must be between 0 and 10"})
+	}
+	if p.ClearTargetWeight && p.TargetWeightKG != nil {
+		iss = append(iss, Issue{Field: "target_weight_kg", Message: "cannot both set a value and clear it"})
+	}
+	if p.ClearTargetRIR && p.TargetRIR != nil {
+		iss = append(iss, Issue{Field: "target_rir", Message: "cannot both set a value and clear it"})
+	}
+	if err := issues(iss); err != nil {
+		return err
 	}
 	return s.store.PatchSessionItem(ctx, sessionID, exercise, p)
 }
@@ -315,20 +346,36 @@ func (s *Service) AdjustSessionItem(ctx context.Context, sessionID int64, exerci
 func (s *Service) SwapSessionItem(ctx context.Context, sessionID int64, from, to string) error {
 	from = s.canon(ctx, from)
 	to = s.canon(ctx, to)
-	if sessionID <= 0 || from == "" || to == "" || from == to {
-		return ErrValidation
+	switch {
+	case sessionID <= 0:
+		return invalid("session_id", "must be a positive id")
+	case from == "":
+		return invalid("from", "is required")
+	case to == "":
+		return invalid("to", "is required")
+	case from == to:
+		return invalid("to", "must differ from the exercise being replaced")
 	}
 	return s.store.SwapSessionItem(ctx, sessionID, from, to)
 }
 
-// RemoveSessionItem drops an exercise from today's plan. Sets already logged
-// against it are kept and reappear as off-plan work.
+// RemoveSessionItem drops an exercise from the workout's prescription. Sets
+// already logged against it are kept and reappear as off-plan work.
 func (s *Service) RemoveSessionItem(ctx context.Context, sessionID int64, exercise string) error {
+	return s.RemoveSessionItemChecked(ctx, sessionID, exercise, nil)
+}
+
+// RemoveSessionItemChecked is RemoveSessionItem guarded by the workout
+// revision the caller last read (nil = no precondition).
+func (s *Service) RemoveSessionItemChecked(ctx context.Context, sessionID int64, exercise string, expectedRevision *int) error {
 	exercise = s.canon(ctx, exercise)
-	if sessionID <= 0 || exercise == "" {
-		return ErrValidation
+	if sessionID <= 0 {
+		return invalid("session_id", "must be a positive id")
 	}
-	return s.store.RemoveSessionItem(ctx, sessionID, exercise)
+	if exercise == "" {
+		return invalid("exercise", "is required")
+	}
+	return s.store.RemoveSessionItem(ctx, sessionID, exercise, expectedRevision)
 }
 
 // SaveSessionAsPlan promotes what a session actually planned — after any
@@ -365,15 +412,21 @@ func (s *Service) SaveSessionAsPlan(ctx context.Context, sessionID int64, name s
 // groups actually trained need rating, which keeps this a few taps.
 func (s *Service) RecordFeedback(ctx context.Context, sessionID int64, f Feedback) error {
 	f.MuscleGroup = strings.ToLower(strings.TrimSpace(f.MuscleGroup))
-	if sessionID <= 0 || !f.Valid() {
-		return ErrValidation
+	if sessionID <= 0 {
+		return invalid("session_id", "must be a positive id")
+	}
+	if !ValidMuscleGroup(f.MuscleGroup) {
+		return invalid("muscle_group", "%q is not a known muscle group; use one of %s", f.MuscleGroup, strings.Join(MuscleGroups, ", "))
+	}
+	if !f.Valid() {
+		return invalid("rating", "fatigue, pump and recovery must each be between 0 and 3")
 	}
 	return s.store.SetFeedback(ctx, sessionID, f)
 }
 
 func (s *Service) SessionFeedback(ctx context.Context, sessionID int64) ([]Feedback, error) {
 	if sessionID <= 0 {
-		return nil, ErrValidation
+		return nil, invalid("session_id", "must be a positive id")
 	}
 	out, err := s.store.SessionFeedback(ctx, sessionID)
 	if err == nil && out == nil {
@@ -385,8 +438,11 @@ func (s *Service) SessionFeedback(ctx context.Context, sessionID int64) ([]Feedb
 // SetLandmarks records a muscle group's personal weekly-set boundaries.
 func (s *Service) SetLandmarks(ctx context.Context, l Landmarks) error {
 	l.MuscleGroup = strings.ToLower(strings.TrimSpace(l.MuscleGroup))
-	if !ValidMuscleGroup(l.MuscleGroup) || l.MEV < 0 || l.MRV < 0 {
-		return ErrValidation
+	if !ValidMuscleGroup(l.MuscleGroup) {
+		return invalid("muscle_group", "%q is not a known muscle group; use one of %s", l.MuscleGroup, strings.Join(MuscleGroups, ", "))
+	}
+	if l.MEV < 0 || l.MRV < 0 {
+		return invalid("mev", "mev and mrv must not be negative")
 	}
 	if l.MEV > 0 && l.MRV > 0 && l.MEV > l.MRV {
 		return fmt.Errorf("%w: MEV must not exceed MRV", ErrValidation)
@@ -501,7 +557,7 @@ func clampAdvice(current, delta, mev, mrv int) string {
 // Snapshot writes a consistent copy of the database to path, for backup.
 func (s *Service) Snapshot(ctx context.Context, path string) error {
 	if strings.TrimSpace(path) == "" {
-		return ErrValidation
+		return invalid("path", "is required")
 	}
 	return s.store.Snapshot(ctx, path)
 }
@@ -512,7 +568,7 @@ func (s *Service) Snapshot(ctx context.Context, path string) error {
 func (s *Service) SuggestLoad(ctx context.Context, exercise string) (LoadSuggestion, error) {
 	exercise = s.canon(ctx, exercise)
 	if exercise == "" {
-		return LoadSuggestion{}, ErrValidation
+		return LoadSuggestion{}, invalid("exercise", "is required")
 	}
 	history, err := s.ExerciseHistory(ctx, exercise, 100)
 	if err != nil {
@@ -567,7 +623,7 @@ func (s *Service) prescriptionFor(ctx context.Context, exercise string) (int, in
 // SessionProgress reports planned versus completed sets for a session.
 func (s *Service) SessionProgress(ctx context.Context, sessionID int64) ([]PlanProgress, error) {
 	if sessionID <= 0 {
-		return nil, ErrValidation
+		return nil, invalid("session_id", "must be a positive id")
 	}
 	out, err := s.store.SessionProgress(ctx, sessionID)
 	if err == nil && out == nil {
@@ -689,7 +745,7 @@ func (s *Service) LogSets(ctx context.Context, in BatchInput) (BatchResult, erro
 	copy(pres, in.Prescriptions)
 	seen := map[string]int{}
 	for i := range pres {
-		iss = append(iss, planItemIssues(&pres[i], fmt.Sprintf("prescriptions[%d]", i))...)
+		iss = append(iss, planItemIssues(&pres[i], fmt.Sprintf("prescriptions[%d]", i), "target_sets")...)
 		if first, dup := seen[pres[i].Exercise]; dup && pres[i].Exercise != "" {
 			iss = append(iss, Issue{Field: fmt.Sprintf("prescriptions[%d].exercise", i), Message: fmt.Sprintf("duplicates prescriptions[%d]", first)})
 		}
@@ -811,8 +867,11 @@ func (s *Service) AddSet(ctx context.Context, in AddSetInput) (Set, float64, err
 func (s *Service) SetExerciseNote(ctx context.Context, exercise, note string) error {
 	exercise = s.canon(ctx, exercise)
 	note = strings.TrimSpace(note)
-	if exercise == "" || len(note) > maxNoteLen {
-		return ErrValidation
+	if exercise == "" {
+		return invalid("exercise", "is required")
+	}
+	if len(note) > maxNoteLen {
+		return invalid("note", "must be at most %d characters", maxNoteLen)
 	}
 	return s.store.SetExerciseNote(ctx, ExerciseNote{Exercise: exercise, Note: note})
 }
@@ -936,13 +995,16 @@ func (s *Service) GetSet(ctx context.Context, id int64) (Set, error) {
 }
 func (s *Service) GetSession(ctx context.Context, id int64) (Session, error) {
 	if id <= 0 {
-		return Session{}, ErrValidation
+		return Session{}, invalid("session_id", "must be a positive id")
 	}
 	return s.store.GetSession(ctx, id)
 }
 func (s *Service) ListSessions(ctx context.Context, f ListFilter) ([]SessionSummary, error) {
-	if f.Limit < 0 || f.Limit > 100 || (f.From != "" && !validDate(f.From)) || (f.To != "" && !validDate(f.To)) {
-		return nil, ErrValidation
+	if f.Limit < 0 || f.Limit > 100 {
+		return nil, invalid("limit", "must be between 0 and 100 (0 uses the default of 20), got %d", f.Limit)
+	}
+	if err := checkDates(f.From, f.To); err != nil {
+		return nil, err
 	}
 	if f.From != "" && f.To != "" && f.From > f.To {
 		return nil, fmt.Errorf("%w: invalid date range: from must not be after to", ErrValidation)
@@ -961,7 +1023,7 @@ func (s *Service) ListSessions(ctx context.Context, f ListFilter) ([]SessionSumm
 // carrying the values of its last recorded set.
 func (s *Service) RecentExercises(ctx context.Context, limit int) ([]ExerciseMemory, error) {
 	if limit < 0 || limit > 50 {
-		return nil, ErrValidation
+		return nil, invalid("limit", "must be between 0 and 50, got %d", limit)
 	}
 	if limit == 0 {
 		limit = 8
@@ -977,7 +1039,7 @@ func (s *Service) RecentExercises(ctx context.Context, limit int) ([]ExerciseMem
 // number of sets destroyed is returned for the caller to report.
 func (s *Service) DeleteSession(ctx context.Context, id int64) (int, error) {
 	if id <= 0 {
-		return 0, ErrValidation
+		return 0, invalid("session_id", "must be a positive id")
 	}
 	var keys []string
 	if s.media != nil {
@@ -994,8 +1056,11 @@ func (s *Service) DeleteSession(ctx context.Context, id int64) (int, error) {
 // by estimated 1RM.
 func (s *Service) ExerciseHistory(ctx context.Context, exercise string, limit int) (ExerciseHistory, error) {
 	exercise = s.canon(ctx, exercise)
-	if exercise == "" || limit < 0 || limit > 500 {
-		return ExerciseHistory{}, ErrValidation
+	if exercise == "" {
+		return ExerciseHistory{}, invalid("exercise", "is required")
+	}
+	if limit < 0 || limit > 500 {
+		return ExerciseHistory{}, invalid("limit", "must be between 0 and 500 (0 uses the default of 50), got %d", limit)
 	}
 	if limit == 0 {
 		limit = 50
@@ -1009,11 +1074,8 @@ func (s *Service) ExerciseHistory(ctx context.Context, exercise string, limit in
 
 // WeeklyVolume returns SI per muscle group bucketed by training week.
 func (s *Service) WeeklyVolume(ctx context.Context, f ListFilter) ([]WeeklyVolume, error) {
-	if (f.From != "" && !validDate(f.From)) || (f.To != "" && !validDate(f.To)) {
-		return nil, ErrValidation
-	}
-	if f.From != "" && f.To != "" && f.From > f.To {
-		return nil, fmt.Errorf("%w: invalid date range: from must not be after to", ErrValidation)
+	if err := checkDates(f.From, f.To); err != nil {
+		return nil, err
 	}
 	out, err := s.store.WeeklyVolume(ctx, f)
 	if err == nil && out == nil {
@@ -1028,8 +1090,11 @@ func (s *Service) WeeklyVolume(ctx context.Context, f ListFilter) ([]WeeklyVolum
 func (s *Service) SetExerciseGroup(ctx context.Context, exercise, group string) error {
 	exercise = s.canon(ctx, exercise)
 	group = strings.ToLower(strings.TrimSpace(group))
-	if exercise == "" || !ValidMuscleGroup(group) {
-		return ErrValidation
+	if exercise == "" {
+		return invalid("exercise", "is required")
+	}
+	if !ValidMuscleGroup(group) {
+		return invalid("muscle_group", "%q is not a known muscle group; use one of %s", group, strings.Join(MuscleGroups, ", "))
 	}
 	return s.store.SetExerciseGroup(ctx, ExerciseGroup{Exercise: exercise, MuscleGroup: group})
 }
@@ -1044,11 +1109,8 @@ func (s *Service) ExerciseGroups(ctx context.Context) ([]ExerciseGroup, error) {
 
 // VolumeByGroup totals SI per muscle group over an optional date range.
 func (s *Service) VolumeByGroup(ctx context.Context, f ListFilter) ([]GroupVolume, error) {
-	if (f.From != "" && !validDate(f.From)) || (f.To != "" && !validDate(f.To)) {
-		return nil, ErrValidation
-	}
-	if f.From != "" && f.To != "" && f.From > f.To {
-		return nil, fmt.Errorf("%w: invalid date range: from must not be after to", ErrValidation)
+	if err := checkDates(f.From, f.To); err != nil {
+		return nil, err
 	}
 	out, err := s.store.VolumeByGroup(ctx, f)
 	if err == nil && out == nil {
@@ -1074,4 +1136,18 @@ func (s *Service) canon(ctx context.Context, name string) string {
 		return ex.Name
 	}
 	return name
+}
+
+// checkDates validates an optional inclusive date range.
+func checkDates(from, to string) error {
+	if from != "" && !validDate(from) {
+		return invalid("from", "%q is not a valid date; use YYYY-MM-DD", from)
+	}
+	if to != "" && !validDate(to) {
+		return invalid("to", "%q is not a valid date; use YYYY-MM-DD", to)
+	}
+	if from != "" && to != "" && from > to {
+		return invalid("from", "must not be after to")
+	}
+	return nil
 }

@@ -85,7 +85,7 @@ func TestServiceListSessionsDateRange(t *testing.T) {
 				if !errors.Is(err, ErrValidation) {
 					t.Fatalf("ListSessions() error = %v, want validation error", err)
 				}
-				if err.Error() != "validation error: invalid date range: from must not be after to" {
+				if err.Error() != "validation error: from: must not be after to" {
 					t.Fatalf("ListSessions() error = %q, want clear range validation", err)
 				}
 			} else if err != nil {
@@ -570,7 +570,7 @@ func (m *memoryStore) SwapSessionItem(_ context.Context, id int64, from, to stri
 	m.swapFrom, m.swapTo = from, to
 	return nil
 }
-func (m *memoryStore) RemoveSessionItem(_ context.Context, id int64, ex string) error {
+func (m *memoryStore) RemoveSessionItem(_ context.Context, id int64, ex string, _ *int) error {
 	m.itemRemoved = ex
 	return nil
 }

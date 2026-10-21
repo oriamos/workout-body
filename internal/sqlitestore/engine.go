@@ -964,7 +964,7 @@ func (s *Store) DeletePlanExpected(ctx context.Context, id int64, expected *int)
 // ---- analytics ------------------------------------------------------------
 
 func (s *Store) SetRecords(ctx context.Context, from, to string) ([]training.SetRecord, error) {
-	q := `SELECT st.id,st.session_id,se.date,st.exercise_id,st.exercise,COALESCE(g.muscle_group,''),st.weight_kg,st.reps,st.rpe,st.rir,st.set_type
+	q := `SELECT st.id,st.session_id,se.date,st.exercise_id,st.exercise,COALESCE(g.muscle_group,''),st.weight_kg,st.reps,st.rpe,st.rir,st.set_type,st.technique
 FROM sets st JOIN sessions se ON se.id=st.session_id
 LEFT JOIN exercise_groups g ON g.exercise=st.exercise WHERE 1=1`
 	var args []any
@@ -987,7 +987,7 @@ LEFT JOIN exercise_groups g ON g.exercise=st.exercise WHERE 1=1`
 		var r training.SetRecord
 		var w, rpe, rir sql.NullFloat64
 		var reps sql.NullInt64
-		if err = rows.Scan(&r.SetID, &r.SessionID, &r.Date, &r.ExerciseID, &r.Exercise, &r.Muscle, &w, &reps, &rpe, &rir, &r.SetType); err != nil {
+		if err = rows.Scan(&r.SetID, &r.SessionID, &r.Date, &r.ExerciseID, &r.Exercise, &r.Muscle, &w, &reps, &rpe, &rir, &r.SetType, &r.Technique); err != nil {
 			return nil, err
 		}
 		r.WeightKG, r.Reps, r.RPE, r.RIR = ptrF(w), ptrI(reps), ptrF(rpe), ptrF(rir)

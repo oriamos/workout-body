@@ -237,11 +237,20 @@ type SessionItemPatch struct {
 	TargetWeightKG *float64
 	TargetRIR      *float64
 	Skipped        *bool
+
+	// Clear* turn an optional target back into "not prescribed".
+	ClearTargetWeight bool
+	ClearTargetRIR    bool
+
+	// ExpectedRevision, when non-nil, requires the workout to still be at this
+	// revision (checked inside the transaction).
+	ExpectedRevision *int
 }
 
 func (p SessionItemPatch) Empty() bool {
 	return p.TargetSets == nil && p.RepMin == nil && p.RepMax == nil && p.TargetRPE == nil &&
-		p.TargetWeightKG == nil && p.TargetRIR == nil && p.Skipped == nil
+		p.TargetWeightKG == nil && p.TargetRIR == nil && p.Skipped == nil &&
+		!p.ClearTargetWeight && !p.ClearTargetRIR
 }
 
 // Feedback is the post-session response of one muscle group, each dimension

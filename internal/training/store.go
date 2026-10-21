@@ -22,7 +22,7 @@ type Store interface {
 	SetSessionItem(context.Context, int64, PlanItem) error
 	PatchSessionItem(context.Context, int64, string, SessionItemPatch) error
 	SwapSessionItem(context.Context, int64, string, string) error
-	RemoveSessionItem(context.Context, int64, string) error
+	RemoveSessionItem(ctx context.Context, sessionID int64, exercise string, expectedRevision *int) error
 	SetFeedback(context.Context, int64, Feedback) error
 	SessionFeedback(context.Context, int64) ([]Feedback, error)
 	LatestFeedback(context.Context) (map[string]Feedback, error)

@@ -162,7 +162,7 @@ func ParsePlanDocument(data []byte) (PlanDocument, error) {
 		iss = append(iss, Issue{Field: "version", Message: fmt.Sprintf("must be %d (this server reads version %d)", PlanVersion, PlanVersion)})
 	}
 	if p := doc.toPlan(); true {
-		if err := validatePlan(&p); err != nil {
+		if err := validatePlan(&p, "sets"); err != nil {
 			for _, i := range IssuesOf(err) {
 				// A value that failed to decode was already reported; do not
 				// add a second, misleading "must be between" issue for it.
@@ -248,7 +248,7 @@ func (s *Service) ImportPlan(ctx context.Context, data []byte, onConflict string
 		return PlanImportResult{}, invalid("on_conflict", "must be %q or %q", OnConflictError, OnConflictReplace)
 	}
 	plan := doc.toPlan()
-	if err := validatePlan(&plan); err != nil {
+	if err := validatePlan(&plan, "sets"); err != nil {
 		return PlanImportResult{}, err
 	}
 	res, err := s.store.ImportPlan(ctx, plan, onConflict, dryRun)
@@ -270,7 +270,7 @@ func (s *Service) ReplacePlan(ctx context.Context, id int64, data []byte, expect
 		return Plan{}, err
 	}
 	plan := doc.toPlan()
-	if err := validatePlan(&plan); err != nil {
+	if err := validatePlan(&plan, "sets"); err != nil {
 		return Plan{}, err
 	}
 	return s.store.ReplacePlan(ctx, id, plan, expectedRevision)
@@ -356,6 +356,11 @@ func (s *Service) ExerciseStats(ctx context.Context, ref, from, to string) (Exer
 			pt.VolumeKG += load
 		} else {
 			pt.UnrecordedSets++
+		}
+		// Sets done with an intensity technique (drop set, rest-pause, …) count
+		// toward volume but never become a record, matching ExerciseHistory.
+		if r.Technique != "" {
+			continue
 		}
 		if r.WeightKG != nil {
 			if pt.TopWeightKG == nil || *r.WeightKG > *pt.TopWeightKG {

@@ -266,6 +266,7 @@ type SetRecord struct {
 	RPE        *float64
 	RIR        *float64
 	SetType    string
+	Technique  string
 }
 
 func (r SetRecord) working() bool { return r.SetType != SetTypeWarmup }

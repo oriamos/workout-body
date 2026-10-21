@@ -517,6 +517,9 @@ func (s *Store) PatchSessionItem(ctx context.Context, sessionID int64, exercise 
 		return err
 	}
 	defer tx.Rollback()
+	if err = checkWorkoutRevision(ctx, tx, sessionID, p.ExpectedRevision); err != nil {
+		return err
+	}
 	var it training.PlanItem
 	var skipped bool
 	var tw, tr sql.NullFloat64
@@ -541,10 +544,16 @@ func (s *Store) PatchSessionItem(ctx context.Context, sessionID int64, exercise 
 	if p.TargetRPE != nil {
 		it.TargetRPE = *p.TargetRPE
 	}
-	if p.TargetWeightKG != nil {
+	switch {
+	case p.ClearTargetWeight:
+		it.TargetWeightKG = nil
+	case p.TargetWeightKG != nil:
 		it.TargetWeightKG = p.TargetWeightKG
 	}
-	if p.TargetRIR != nil {
+	switch {
+	case p.ClearTargetRIR:
+		it.TargetRIR = nil
+	case p.TargetRIR != nil:
 		it.TargetRIR = p.TargetRIR
 	}
 	if p.Skipped != nil {
@@ -589,10 +598,18 @@ func (s *Store) SwapSessionItem(ctx context.Context, sessionID int64, from, to s
 	return tx.Commit()
 }
 
-// RemoveSessionItem drops an exercise from today's plan. Sets already logged
-// against it are untouched and resurface as off-plan work.
-func (s *Store) RemoveSessionItem(ctx context.Context, sessionID int64, exercise string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM session_items WHERE session_id=? AND exercise=?`, sessionID, exercise)
+// RemoveSessionItem drops an exercise from the workout's prescription. Sets
+// already logged against it are untouched and resurface as off-plan work.
+func (s *Store) RemoveSessionItem(ctx context.Context, sessionID int64, exercise string, expected *int) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = checkWorkoutRevision(ctx, tx, sessionID, expected); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM session_items WHERE session_id=? AND exercise=?`, sessionID, exercise)
 	if err != nil {
 		return err
 	}
@@ -602,6 +619,26 @@ func (s *Store) RemoveSessionItem(ctx context.Context, sessionID int64, exercise
 	}
 	if n == 0 {
 		return training.ErrNotFound
+	}
+	if err = bumpWorkout(ctx, tx, sessionID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// checkWorkoutRevision fails with ErrNotFound for an unknown workout and with
+// ErrConflict when expected is set and stale.
+func checkWorkoutRevision(ctx context.Context, q dbtx, sessionID int64, expected *int) error {
+	var rev int
+	err := q.QueryRowContext(ctx, `SELECT revision FROM sessions WHERE id=?`, sessionID).Scan(&rev)
+	if errors.Is(err, sql.ErrNoRows) {
+		return training.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if expected != nil && *expected != rev {
+		return fmt.Errorf("%w: workout is at revision %d, not %d; re-read it and retry", training.ErrConflict, rev, *expected)
 	}
 	return nil
 }
