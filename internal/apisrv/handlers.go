@@ -106,10 +106,14 @@ type logSetsBody struct {
 // ---- meta -------------------------------------------------------------------
 
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) error {
-	writeJSON(w, http.StatusOK, map[string]string{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"timezone":    s.svc.Location().String(),
 		"today":       s.svc.Today(),
 		"api_version": APIVersion,
+		"media": map[string]any{
+			"enabled":         s.svc.MediaEnabled(),
+			"max_video_bytes": s.svc.MaxVideoBytes(),
+		},
 	})
 	return nil
 }
@@ -232,30 +236,22 @@ func (s *Server) renderWorkout(w http.ResponseWriter, r *http.Request, date stri
 	return nil
 }
 
-// workoutForPrescription loads the workout a prescription edit targets and
-// checks an optional If-Match against its revision.
-//
-// The check is advisory: the engine's AdjustSessionItem/RemoveSessionItem take
-// no expected revision, so a concurrent write between this read and the edit
-// is not detected.
-func (s *Server) workoutForPrescription(r *http.Request) (training.Session, string, error) {
+// prescriptionTarget resolves the workout a prescription edit targets and the
+// required If-Match revision, which the engine checks inside its transaction.
+func (s *Server) prescriptionTarget(r *http.Request) (training.Session, string, *int, error) {
 	date, err := s.date("date", r.PathValue("date"))
 	if err != nil {
-		return training.Session{}, "", err
+		return training.Session{}, "", nil, err
 	}
-	rev, _, err := ifMatch(r)
+	rev, err := requireIfMatch(r)
 	if err != nil {
-		return training.Session{}, "", err
+		return training.Session{}, "", nil, err
 	}
 	wk, err := s.svc.GetWorkout(r.Context(), date)
 	if err != nil {
-		return wk, date, orNotFound(err, "no workout on %s", date)
+		return wk, date, nil, orNotFound(err, "no workout on %s", date)
 	}
-	if rev != nil && *rev != wk.Revision {
-		return wk, date, &apiError{status: http.StatusPreconditionFailed, Code: codePreconditionFailed,
-			Message: fmt.Sprintf("workout %s is at revision %d, not %d; re-read it and retry", date, wk.Revision, *rev)}
-	}
-	return wk, date, nil
+	return wk, date, rev, nil
 }
 
 var prescriptionPatchKeys = map[string]bool{"target_sets": true, "rep_min": true, "rep_max": true, "target_rpe": true,
@@ -263,6 +259,10 @@ var prescriptionPatchKeys = map[string]bool{"target_sets": true, "rep_min": true
 
 func (s *Server) patchPrescription(w http.ResponseWriter, r *http.Request) error {
 	exercise := r.PathValue("exercise")
+	wk, date, rev, err := s.prescriptionTarget(r)
+	if err != nil {
+		return err
+	}
 	data, err := readBody(w, r, "application/merge-patch+json")
 	if err != nil {
 		return err
@@ -271,46 +271,49 @@ func (s *Server) patchPrescription(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
-	var p training.SessionItemPatch
+	p := training.SessionItemPatch{ExpectedRevision: rev}
 	var iss []training.Issue
 	for k, v := range raw {
-		if isNull(v) {
-			iss = append(iss, training.Issue{Field: k, Message: "cannot be null; clearing a prescription field is not supported"})
+		if !isNull(v) {
+			continue
+		}
+		switch k {
+		case "target_weight_kg":
+			p.ClearTargetWeight = true
+		case "target_rir":
+			p.ClearTargetRIR = true
+		default:
+			iss = append(iss, training.Issue{Field: k, Message: "cannot be null"})
 		}
 	}
-	if len(iss) == 0 {
-		var ts, rmin, rmax int
-		var rpe, tw, tr float64
-		var sk bool
-		if member(raw, "target_sets", &ts, &iss) {
-			p.TargetSets = &ts
-		}
-		if member(raw, "rep_min", &rmin, &iss) {
-			p.RepMin = &rmin
-		}
-		if member(raw, "rep_max", &rmax, &iss) {
-			p.RepMax = &rmax
-		}
-		if member(raw, "target_rpe", &rpe, &iss) {
-			p.TargetRPE = &rpe
-		}
-		if member(raw, "target_weight_kg", &tw, &iss) {
-			p.TargetWeightKG = &tw
-		}
-		if member(raw, "target_rir", &tr, &iss) {
-			p.TargetRIR = &tr
-		}
-		if member(raw, "skipped", &sk, &iss) {
-			p.Skipped = &sk
-		}
+	notNull := func(k string) bool { v, ok := raw[k]; return ok && !isNull(v) }
+	var ts, rmin, rmax int
+	var rpe, tw, tr float64
+	var sk bool
+	if notNull("target_sets") && member(raw, "target_sets", &ts, &iss) {
+		p.TargetSets = &ts
+	}
+	if notNull("rep_min") && member(raw, "rep_min", &rmin, &iss) {
+		p.RepMin = &rmin
+	}
+	if notNull("rep_max") && member(raw, "rep_max", &rmax, &iss) {
+		p.RepMax = &rmax
+	}
+	if notNull("target_rpe") && member(raw, "target_rpe", &rpe, &iss) {
+		p.TargetRPE = &rpe
+	}
+	if notNull("target_weight_kg") && member(raw, "target_weight_kg", &tw, &iss) {
+		p.TargetWeightKG = &tw
+	}
+	if notNull("target_rir") && member(raw, "target_rir", &tr, &iss) {
+		p.TargetRIR = &tr
+	}
+	if notNull("skipped") && member(raw, "skipped", &sk, &iss) {
+		p.Skipped = &sk
 	}
 	if len(iss) > 0 {
 		sortIssues(iss)
 		return invalidIssues(iss)
-	}
-	wk, date, err := s.workoutForPrescription(r)
-	if err != nil {
-		return err
 	}
 	if err := s.svc.AdjustSessionItem(r.Context(), wk.ID, exercise, p); err != nil {
 		return orNotFound(err, "workout %s has no prescription for %q", date, exercise)
@@ -320,11 +323,11 @@ func (s *Server) patchPrescription(w http.ResponseWriter, r *http.Request) error
 
 func (s *Server) deletePrescription(w http.ResponseWriter, r *http.Request) error {
 	exercise := r.PathValue("exercise")
-	wk, date, err := s.workoutForPrescription(r)
+	wk, date, rev, err := s.prescriptionTarget(r)
 	if err != nil {
 		return err
 	}
-	if err := s.svc.RemoveSessionItem(r.Context(), wk.ID, exercise); err != nil {
+	if err := s.svc.RemoveSessionItemChecked(r.Context(), wk.ID, exercise, rev); err != nil {
 		return orNotFound(err, "workout %s has no prescription for %q", date, exercise)
 	}
 	return s.renderWorkout(w, r, date, http.StatusOK)

@@ -22,7 +22,8 @@ const APIVersion = "v1"
 // Prefix is the path every route lives under.
 const Prefix = "/api/v1"
 
-// maxBodyBytes bounds every request body.
+// maxBodyBytes bounds every JSON request body. Video uploads are bounded by
+// the service's MaxVideoBytes instead.
 const maxBodyBytes = 1 << 20
 
 //go:embed openapi.yaml
@@ -68,6 +69,8 @@ func (s *Server) register() {
 	s.handle("GET", "/sets/{id}", s.getSet)
 	s.handle("PATCH", "/sets/{id}", s.patchSet)
 	s.handle("DELETE", "/sets/{id}", s.deleteSet)
+	s.handle("GET", "/sets/{id}/videos", s.listSetVideos)
+	s.handle("POST", "/sets/{id}/videos", s.uploadSetVideo)
 
 	s.handle("GET", "/plans", s.listPlans)
 	s.handle("POST", "/plans", s.createPlan)
@@ -84,6 +87,13 @@ func (s *Server) register() {
 	s.handle("DELETE", "/exercises/{ref}/aliases/{alias}", s.removeAlias)
 	s.handle("GET", "/exercises/{ref}/history", s.exerciseHistory)
 	s.handle("GET", "/exercises/{ref}/stats", s.exerciseStats)
+	s.handle("GET", "/exercises/{ref}/videos", s.listExerciseVideos)
+	s.handle("POST", "/exercises/{ref}/videos", s.uploadExerciseVideo)
+	s.handle("GET", "/exercises/{ref}/guide", s.exerciseGuide)
+	s.handle("PUT", "/exercises/{ref}/instructions", s.putInstructions)
+
+	s.handle("GET", "/media/{id}", s.getMedia)
+	s.handle("DELETE", "/media/{id}", s.deleteMedia)
 
 	s.handle("GET", "/stats/summary", s.statsSummary)
 

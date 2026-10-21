@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fullfran/training-mcp/internal/httpsrv"
+	"github.com/fullfran/training-mcp/internal/mediastore"
 	"github.com/fullfran/training-mcp/internal/sqlitestore"
 	"github.com/fullfran/training-mcp/internal/training"
 )
@@ -29,7 +31,7 @@ var jerusalem = func() *time.Location {
 }()
 
 // env is the API over a real SQLite-backed service on a temp file, mounted the
-// way production mounts it: outer mux at /api/v1/ behind MaxBody and Bearer.
+// way production mounts it (httpsrv.RoutesWithAPI, bearer-guarded).
 type env struct {
 	t      *testing.T
 	svc    *training.Service
@@ -39,6 +41,44 @@ type env struct {
 	logBuf *bytes.Buffer
 	// validate checks every response against openapi.yaml.
 	validate bool
+	// mediaDir is the blob directory when media is enabled.
+	mediaDir string
+}
+
+// newMediaEnv is newEnv with video storage in a temp directory.
+func newMediaEnv(t *testing.T, maxBytes int64) *env {
+	t.Helper()
+	e := newEnv(t)
+	e.mediaDir = filepath.Join(t.TempDir(), "media")
+	fs, err := mediastore.New(e.mediaDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.svc.WithMedia(e.st, fs, maxBytes)
+	return e
+}
+
+// filesOnDisk counts stored blobs and leftover temp uploads.
+func (e *env) filesOnDisk() int {
+	n := 0
+	filepath.WalkDir(e.mediaDir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			n++
+		}
+		return nil
+	})
+	return n
+}
+
+// mp4 returns bytes that sniff as an MP4 container, with a recognisable
+// pattern so ranges can be checked.
+func mp4(size int) []byte {
+	b := make([]byte, size)
+	for i := range b {
+		b[i] = byte(i % 251)
+	}
+	copy(b, []byte{0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'})
+	return b
 }
 
 func newEnv(t *testing.T) *env {
@@ -53,9 +93,8 @@ func newEnv(t *testing.T) *env {
 	api := New(svc)
 	buf := &bytes.Buffer{}
 	api.logger = log.New(buf, "", 0)
-	mux := http.NewServeMux()
-	mux.Handle("/api/v1/", httpsrv.MaxBody(httpsrv.Bearer(testToken, false, api.Handler())))
-	srv := httptest.NewServer(mux)
+	// The production router: bearer-guarded, no outer body cap for /api/v1.
+	srv := httptest.NewServer(httpsrv.RoutesWithAPI(http.NotFoundHandler(), api.Handler(), false, testToken, nil))
 	t.Cleanup(srv.Close)
 	return &env{t: t, svc: svc, st: st, api: api, srv: srv, logBuf: buf, validate: true}
 }
@@ -87,6 +126,8 @@ func (e *env) do(method, path string, body any, headers map[string]string) resp 
 		rd = strings.NewReader(b)
 	case []byte:
 		rd = bytes.NewReader(b)
+	case io.Reader:
+		rd = b
 	default:
 		data, err := json.Marshal(b)
 		if err != nil {

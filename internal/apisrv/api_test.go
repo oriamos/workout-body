@@ -37,6 +37,9 @@ func TestConfigAndSpec(t *testing.T) {
 	if m["timezone"] != "Asia/Jerusalem" || m["today"] != "2026-03-10" || m["api_version"] != "v1" {
 		t.Fatalf("config = %v", m)
 	}
+	if md := m["media"].(map[string]any); md["enabled"] != false {
+		t.Fatalf("media = %v", md)
+	}
 	r := e.do("GET", "/api/v1/openapi.yaml", nil, nil)
 	if r.status != 200 || !strings.HasPrefix(r.header.Get("Content-Type"), "application/yaml") || !strings.HasPrefix(string(r.body), "openapi: 3.1") {
 		t.Fatalf("spec: %d %s", r.status, r.header.Get("Content-Type"))
@@ -230,41 +233,56 @@ func TestFollowPlanAndPrescriptions(t *testing.T) {
 	expect(t, e.do("POST", "/api/v1/workouts/today/plan", map[string]any{"plan_id": planID}, nil), 200)
 	expectErr(t, e.do("POST", "/api/v1/workouts/today/plan", map[string]any{"plan_id": other}, nil), 409, "conflict")
 
-	// Adjust a prescription.
+	// Adjust a prescription: If-Match (workout ETag) is required and atomic.
 	path := "/api/v1/workouts/today/prescriptions/bench%20press"
 	tag := r.etag()
+	expectErr(t, e.do("PATCH", path, map[string]any{"target_sets": 5}, nil), 428, "precondition_required")
 	expectErr(t, e.do("PATCH", path, map[string]any{"target_sets": 5}, h("If-Match", `"99"`)), 412, "precondition_failed")
-	r = e.do("PATCH", path, map[string]any{"target_sets": 5, "target_weight_kg": 82.5, "skipped": false}, h("If-Match", tag))
+	r = e.do("PATCH", path, map[string]any{"target_sets": 5, "target_weight_kg": 82.5, "target_rir": 1, "skipped": false}, h("If-Match", tag))
 	w = expect(t, r, 200)
-	var bench map[string]any
-	for _, p := range list(w, "progress") {
-		if p.(map[string]any)["exercise"] == "bench press" {
-			bench = p.(map[string]any)
+	progressFor := func(w map[string]any, ex string) map[string]any {
+		for _, p := range list(w, "progress") {
+			if p.(map[string]any)["exercise"] == ex {
+				return p.(map[string]any)
+			}
 		}
+		return nil
 	}
-	if num(bench["target_sets"]) != 5 || bench["target_weight_kg"] != 82.5 || num(bench["rep_min"]) != 6 {
+	bench := progressFor(w, "bench press")
+	if num(bench["target_sets"]) != 5 || bench["target_weight_kg"] != 82.5 || bench["target_rir"] != 1.0 || num(bench["rep_min"]) != 6 {
 		t.Fatalf("adjusted = %v", bench)
 	}
 	if r.etag() == tag {
 		t.Fatal("ETag did not change")
 	}
-	// Merge-patch content type is accepted too.
-	expect(t, e.do("PATCH", path, `{"skipped":true}`, h("Content-Type", "application/merge-patch+json")), 200)
-	hasIssue(t, expectErr(t, e.do("PATCH", path, `{"target_rpe":null}`, nil), 400, "validation_error"), "target_rpe")
-	hasIssue(t, expectErr(t, e.do("PATCH", path, `{"sets":3}`, nil), 400, "validation_error"), "sets")
-	hasIssue(t, expectErr(t, e.do("PATCH", path, `{"target_sets":"x"}`, nil), 400, "validation_error"), "target_sets")
-	expectErr(t, e.do("PATCH", path, `{}`, nil), 400, "validation_error")
-	expectErr(t, e.do("PATCH", path, `{"target_sets":50}`, nil), 400, "validation_error")
-	expectErr(t, e.do("PATCH", "/api/v1/workouts/today/prescriptions/curl", `{"target_sets":2}`, nil), 404, "not_found")
-	expectErr(t, e.do("PATCH", "/api/v1/workouts/2026-01-01/prescriptions/curl", `{"target_sets":2}`, nil), 404, "not_found")
-
-	// Remove it; logged sets would survive as off-plan work.
-	w = expect(t, e.do("DELETE", path, nil, nil), 200)
-	if len(list(w, "progress")) != 1 {
-		t.Fatalf("after delete progress = %v", list(w, "progress"))
+	expectErr(t, e.do("PATCH", path, map[string]any{"target_sets": 4}, h("If-Match", tag)), 412, "precondition_failed")
+	// null clears the optional targets; merge-patch content type is accepted.
+	r = e.do("PATCH", path, `{"target_weight_kg":null,"target_rir":null,"skipped":true}`, h("Content-Type", "application/merge-patch+json", "If-Match", r.etag()))
+	bench = progressFor(expect(t, r, 200), "bench press")
+	if _, ok := bench["target_weight_kg"]; ok || bench["skipped"] != true {
+		t.Fatalf("cleared = %v", bench)
 	}
-	expectErr(t, e.do("DELETE", path, nil, nil), 404, "not_found")
-	expectErr(t, e.do("DELETE", "/api/v1/workouts/today/prescriptions/cable%20row", nil, h("If-Match", `"1"`)), 412, "precondition_failed")
+	star := h("If-Match", "*")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, `{"target_rpe":null}`, star), 400, "validation_error"), "target_rpe")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, `{"sets":3}`, star), 400, "validation_error"), "sets")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, `{"target_sets":"x"}`, star), 400, "validation_error"), "target_sets")
+	expectErr(t, e.do("PATCH", path, `{}`, star), 400, "validation_error")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, `{"target_sets":50}`, star), 400, "validation_error"), "target_sets")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, `{"target_weight_kg":1,"target_weight_kg_x":1}`, star), 400, "validation_error"), "target_weight_kg_x")
+	expectErr(t, e.do("PATCH", "/api/v1/workouts/today/prescriptions/curl", `{"target_sets":2}`, star), 404, "not_found")
+	expectErr(t, e.do("PATCH", "/api/v1/workouts/2026-01-01/prescriptions/curl", `{"target_sets":2}`, star), 404, "not_found")
+
+	// Remove it; logged sets would survive as off-plan work. The removal bumps
+	// the workout revision.
+	expectErr(t, e.do("DELETE", path, nil, nil), 428, "precondition_required")
+	cur := e.do("GET", "/api/v1/workouts/today", nil, nil)
+	expectErr(t, e.do("DELETE", path, nil, h("If-Match", `"1"`)), 412, "precondition_failed")
+	r = e.do("DELETE", path, nil, h("If-Match", cur.etag()))
+	w = expect(t, r, 200)
+	if len(list(w, "progress")) != 1 || r.etag() == cur.etag() {
+		t.Fatalf("after delete progress = %v etag %q", list(w, "progress"), r.etag())
+	}
+	expectErr(t, e.do("DELETE", path, nil, star), 404, "not_found")
 }
 
 func TestSetReadPatchDelete(t *testing.T) {
@@ -378,7 +396,7 @@ func TestPlans(t *testing.T) {
 	if r := e.do("GET", path, nil, nil); r.etag() != `"1"` {
 		t.Fatal("dry run wrote")
 	}
-	r = e.do("POST", "/api/v1/plans/import?on_conflict=replace", raw, h("Idempotency-Key", "imp-1"))
+	r = e.do("POST", "/api/v1/plans/import?on_conflict=replace", raw, nil)
 	rep := expect(t, r, 200)
 	if rep["replaced"] != true || num(rep["plan"].(map[string]any)["id"]) != id || r.etag() != `"2"` {
 		t.Fatalf("replace = %v etag %q", rep, r.etag())

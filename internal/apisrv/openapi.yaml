@@ -12,7 +12,9 @@ info:
       `Content-Type: application/json` (PATCH also accepts
       `application/merge-patch+json`), are limited to 1 MiB and are decoded
       strictly: unknown fields are rejected with a `validation_error` naming
-      the field, and trailing data is a `bad_request`.
+      the field, and trailing data is a `bad_request`. Video uploads are the
+      exception: they are streamed and bounded by `media.max_video_bytes`
+      from `GET /config`.
     - **Dates** are local calendar dates `YYYY-MM-DD` in the server's
       configured timezone (see `GET /config`). The literal `today` is
       accepted wherever a date is accepted (path segments and `from`/`to`).
@@ -26,9 +28,9 @@ info:
       *clears* the value back to not recorded.
     - **Revisions and ETags**: workouts, sets and plans carry a `revision`
       that increments on every change. Responses for a single workout, set or
-      plan carry `ETag: "<revision>"`. Mutating a set or plan (PATCH, PUT,
-      DELETE) requires `If-Match` with that ETag: missing -> `428`, stale ->
-      `412`. Appending sets/prescriptions may send an optional `If-Match`
+      plan carry `ETag: "<revision>"`. Mutating a set, a plan or a workout
+      prescription (PATCH, PUT, DELETE) requires `If-Match` with that ETag
+      (for prescriptions, the workout's): missing -> `428`, stale -> `412`. Appending sets/prescriptions may send an optional `If-Match`
       (workout revision). A conflict reported by the engine maps to `412`
       when the request carried `If-Match`, otherwise `409`.
     - **Idempotency**: `POST /workouts/{date}/sets` honours an
@@ -36,6 +38,10 @@ info:
       `201`; a replay of the same key with the same body returns `200` with
       `replayed: true` and writes nothing; the same key with a different body
       is a `409`.
+    - **Videos**: sets and exercises can carry videos (MP4, MOV, WebM). The
+      container is verified from the bytes, never from `Content-Type` or the
+      file name. When the server has no media storage, media endpoints answer
+      `501 media_disabled`.
     - **Errors** always use the `Error` envelope. `500` responses never carry
       internal details (they are logged server-side).
     - **Authentication** is a bearer token applied by the outer server layer.
@@ -50,6 +56,7 @@ tags:
   - name: plans
   - name: exercises
   - name: stats
+  - name: media
 
 paths:
   /config:
@@ -217,12 +224,12 @@ paths:
       operationId: adjustPrescription
       summary: Adjust one prescription of the workout
       description: |
-        Merge-patch: only the members given change. `null` is rejected
-        (clearing a prescription field is not supported by the engine).
-        Optional `If-Match` (workout revision) is checked before the edit; the
-        check is advisory, not atomic with it.
+        Merge-patch: only the members given change. `null` clears
+        `target_weight_kg` or `target_rir` (back to not prescribed) and is
+        rejected for the other members. `If-Match` carries the workout ETag and
+        is checked atomically with the edit.
       parameters:
-        - $ref: "#/components/parameters/IfMatchOptional"
+        - $ref: "#/components/parameters/IfMatchRequired"
       requestBody:
         required: true
         content:
@@ -241,15 +248,16 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
         "415": { $ref: "#/components/responses/UnsupportedMediaType" }
         "500": { $ref: "#/components/responses/Internal" }
     delete:
       tags: [workouts]
       operationId: removePrescription
       summary: Remove one prescription from the workout
-      description: Sets already logged for the exercise are kept and show up as off-plan work.
+      description: Sets already logged for the exercise are kept and show up as off-plan work. `If-Match` carries the workout ETag.
       parameters:
-        - $ref: "#/components/parameters/IfMatchOptional"
+        - $ref: "#/components/parameters/IfMatchRequired"
       responses:
         "200":
           description: The workout after the change.
@@ -261,6 +269,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
         "500": { $ref: "#/components/responses/Internal" }
 
   /sets/{id}:
@@ -339,6 +348,38 @@ paths:
         "428": { $ref: "#/components/responses/PreconditionRequired" }
         "500": { $ref: "#/components/responses/Internal" }
 
+  /sets/{id}/videos:
+    parameters:
+      - $ref: "#/components/parameters/SetID"
+    get:
+      tags: [media]
+      operationId: listSetVideos
+      summary: List the videos of a set
+      responses:
+        "200": { $ref: "#/components/responses/VideoList" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/MediaDisabled" }
+    post:
+      tags: [media]
+      operationId: uploadSetVideo
+      summary: Upload a video of a set (e.g. a form check)
+      description: At most 5 videos per set; one more is a `409`. Deleting the set deletes its videos.
+      parameters:
+        - $ref: "#/components/parameters/UploadFilename"
+        - $ref: "#/components/parameters/UploadCaption"
+      requestBody: { $ref: "#/components/requestBodies/VideoUpload" }
+      responses:
+        "201": { $ref: "#/components/responses/MediaCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/MediaDisabled" }
+
   /plans:
     get:
       tags: [plans]
@@ -395,7 +436,9 @@ paths:
         and exercises replaced; workouts already created from it are never
         changed. `dry_run=true` validates and reports the outcome without
         writing (no ETag; a would-be-created plan has id 0).
-        An `Idempotency-Key` header is accepted but not yet honoured here.
+        Import is naturally idempotent, so it takes no `Idempotency-Key`:
+        retrying `on_conflict=error` after a success gets `409` (the plan
+        exists), and retrying `on_conflict=replace` yields the same plan.
       parameters:
         - name: on_conflict
           in: query
@@ -679,6 +722,150 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/Internal" }
 
+  /exercises/{ref}/videos:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseRef"
+    get:
+      tags: [media]
+      operationId: listExerciseVideos
+      summary: List the how-to videos of an exercise
+      responses:
+        "200": { $ref: "#/components/responses/VideoList" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/MediaDisabled" }
+    post:
+      tags: [media]
+      operationId: uploadExerciseVideo
+      summary: Upload a how-to video for an exercise
+      description: At most 10 videos per exercise; one more is a `409`. Never creates the exercise.
+      parameters:
+        - $ref: "#/components/parameters/UploadFilename"
+        - $ref: "#/components/parameters/UploadCaption"
+      requestBody: { $ref: "#/components/requestBodies/VideoUpload" }
+      responses:
+        "201": { $ref: "#/components/responses/MediaCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/MediaDisabled" }
+
+  /exercises/{ref}/guide:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseRef"
+    get:
+      tags: [exercises]
+      operationId: exerciseGuide
+      summary: Written instructions and how-to videos of an exercise
+      description: Works without media storage; `videos` is then empty.
+      responses:
+        "200":
+          description: The guide.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExerciseGuide" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /exercises/{ref}/instructions:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseRef"
+    put:
+      tags: [exercises]
+      operationId: setExerciseInstructions
+      summary: Set the written how-to of an exercise
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [instructions]
+              properties:
+                instructions: { type: string, maxLength: 5000, description: Plain text; trimmed; an empty string clears it. }
+      responses:
+        "200":
+          description: The updated guide.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExerciseGuide" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/MediaDisabled" }
+
+  /media/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Media id.
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [media]
+      operationId: getMedia
+      summary: Stream a video
+      description: |
+        Supports `Range` (206 partial content), `If-Range` and
+        `If-None-Match` (304). The type is the one verified at upload.
+      parameters:
+        - name: Range
+          in: header
+          required: false
+          description: 'Byte range, e.g. `bytes=0-1023`.'
+          schema: { type: string }
+      responses:
+        "200":
+          description: The whole video.
+          headers:
+            ETag: { $ref: "#/components/headers/MediaETag" }
+            Content-Disposition: { $ref: "#/components/headers/MediaDisposition" }
+            Cache-Control: { $ref: "#/components/headers/MediaCacheControl" }
+            Accept-Ranges:
+              description: "`bytes`."
+              schema: { type: string }
+          content:
+            video/mp4: { schema: { type: string, format: binary } }
+            video/quicktime: { schema: { type: string, format: binary } }
+            video/webm: { schema: { type: string, format: binary } }
+        "206":
+          description: The requested byte range.
+          headers:
+            ETag: { $ref: "#/components/headers/MediaETag" }
+            Content-Range:
+              description: 'e.g. `bytes 0-1023/2048`.'
+              schema: { type: string }
+          content:
+            video/mp4: { schema: { type: string, format: binary } }
+            video/quicktime: { schema: { type: string, format: binary } }
+            video/webm: { schema: { type: string, format: binary } }
+        "304":
+          description: Not modified (If-None-Match matched).
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "416":
+          description: Range not satisfiable.
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/MediaDisabled" }
+    delete:
+      tags: [media]
+      operationId: deleteMedia
+      summary: Delete a video and its file
+      responses:
+        "204":
+          description: Deleted.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/MediaDisabled" }
+
   /stats/summary:
     get:
       tags: [stats]
@@ -704,11 +891,38 @@ components:
       scheme: bearer
 
   headers:
+    MediaETag:
+      description: The video's SHA-256 as a strong entity tag.
+      schema: { type: string }
+    MediaDisposition:
+      description: '`inline; filename="<stored file name>"` (non-ASCII names use `filename*`).'
+      schema: { type: string }
+    MediaCacheControl:
+      description: "`private, max-age=3600`."
+      schema: { type: string }
     ETag:
       description: The resource revision as a strong entity tag, e.g. `"3"`. Equals the body's `revision`.
       schema: { type: string, example: '"3"' }
 
   parameters:
+    SetID:
+      name: id
+      in: path
+      required: true
+      description: Stable set id.
+      schema: { type: integer, minimum: 1 }
+    UploadFilename:
+      name: filename
+      in: query
+      required: false
+      description: File name to record for a raw-body upload (path components are stripped). Multipart uploads use the part's file name.
+      schema: { type: string, maxLength: 120 }
+    UploadCaption:
+      name: caption
+      in: query
+      required: false
+      description: Optional caption (max 200 chars). A multipart `caption` part overrides it.
+      schema: { type: string, maxLength: 200 }
     Date:
       name: date
       in: path
@@ -755,7 +969,53 @@ components:
       description: "Client-chosen key (max 128 chars) making a retry safe. Replays return 200 with `replayed: true`."
       schema: { type: string, maxLength: 128 }
 
+  requestBodies:
+    VideoUpload:
+      required: true
+      description: |
+        Either the raw video bytes (any of the listed video types or
+        `application/octet-stream`; use `?filename=` and `?caption=`), or
+        `multipart/form-data` with an optional `caption` text part followed by
+        a `file` part. The upload is streamed, never buffered. Only MP4, MOV
+        and WebM are accepted, as verified from the bytes; anything else is a
+        `validation_error` on field `file`.
+      content:
+        video/mp4: { schema: { type: string, format: binary } }
+        video/quicktime: { schema: { type: string, format: binary } }
+        video/webm: { schema: { type: string, format: binary } }
+        application/octet-stream: { schema: { type: string, format: binary } }
+        multipart/form-data:
+          schema:
+            type: object
+            required: [file]
+            properties:
+              caption: { type: string, maxLength: 200, description: Must come before the file part. }
+              file: { type: string, format: binary }
+          encoding:
+            file:
+              contentType: video/mp4, video/quicktime, video/webm, application/octet-stream
+
   responses:
+    VideoList:
+      description: Videos, oldest first.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [videos]
+            properties:
+              videos:
+                type: array
+                items: { $ref: "#/components/schemas/Media" }
+    MediaCreated:
+      description: Stored.
+      headers:
+        Location:
+          description: URL of the video, `/api/v1/media/{id}`.
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Media" }
     BadRequest:
       description: "`validation_error` (with `issues`) or `bad_request` (malformed JSON, bad header)."
       content:
@@ -782,12 +1042,17 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     PayloadTooLarge:
-      description: "`payload_too_large`: body over 1 MiB."
+      description: "`payload_too_large`: JSON body over 1 MiB, or a video over `media.max_video_bytes`."
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     UnsupportedMediaType:
       description: "`unsupported_media_type`: body sent without `Content-Type: application/json`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    MediaDisabled:
+      description: "`media_disabled`: video storage is not configured on this server."
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -819,6 +1084,7 @@ components:
                 - method_not_allowed
                 - unsupported_media_type
                 - payload_too_large
+                - media_disabled
             message: { type: string }
             issues:
               type: array
@@ -834,11 +1100,17 @@ components:
 
     Config:
       type: object
-      required: [timezone, today, api_version]
+      required: [timezone, today, api_version, media]
       properties:
         timezone: { type: string, description: IANA timezone dates are resolved in., example: Asia/Jerusalem }
         today: { type: string, description: Current local date `YYYY-MM-DD`. }
         api_version: { type: string, example: v1 }
+        media:
+          type: object
+          required: [enabled, max_video_bytes]
+          properties:
+            enabled: { type: boolean, description: False when the server has no video storage (media endpoints answer 501). }
+            max_video_bytes: { type: integer, description: Largest accepted video in bytes (0 when media is disabled). }
 
     SetType:
       type: string
@@ -921,14 +1193,14 @@ components:
       type: object
       additionalProperties: false
       minProperties: 1
-      description: Merge-patch of a prescription; absent = unchanged; `null` is rejected.
+      description: Merge-patch of a prescription; absent = unchanged; `null` clears `target_weight_kg` / `target_rir` and is rejected elsewhere.
       properties:
         target_sets: { type: integer, minimum: 1, maximum: 20 }
         rep_min: { type: integer, minimum: 0 }
         rep_max: { type: integer, minimum: 0 }
         target_rpe: { type: number, minimum: 0, maximum: 10 }
-        target_weight_kg: { type: number, minimum: 0, maximum: 2000 }
-        target_rir: { type: number, minimum: 0, maximum: 10 }
+        target_weight_kg: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        target_rir: { type: [number, "null"], minimum: 0, maximum: 10 }
         skipped: { type: boolean, description: Consciously dropped today; stays listed in progress. }
 
     Set:
@@ -1235,3 +1507,30 @@ components:
               workouts: { type: integer }
               working_sets: { type: integer }
               volume_kg: { type: number }
+
+    Media:
+      type: object
+      required: [id, owner_type, owner_id, kind, filename, content_type, size_bytes, sha256, created_at]
+      description: A stored video. Stream it from `/api/v1/media/{id}`.
+      properties:
+        id: { type: integer }
+        owner_type: { type: string, enum: [set, exercise] }
+        owner_id: { type: integer, description: Set id or exercise id. }
+        kind: { type: string, enum: [video] }
+        filename: { type: string }
+        content_type: { type: string, enum: [video/mp4, video/quicktime, video/webm], description: Verified from the bytes. }
+        size_bytes: { type: integer }
+        sha256: { type: string, description: Hex SHA-256 of the bytes; also the ETag. }
+        caption: { type: string, description: Omitted when empty. }
+        created_at: { type: string, description: UTC timestamp. }
+
+    ExerciseGuide:
+      type: object
+      required: [exercise_id, exercise, instructions, videos]
+      properties:
+        exercise_id: { type: integer }
+        exercise: { type: string }
+        instructions: { type: string, description: Empty when none are written. }
+        videos:
+          type: array
+          items: { $ref: "#/components/schemas/Media" }

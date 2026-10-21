@@ -27,6 +27,7 @@ const (
 	codeMethodNotAllowed     = "method_not_allowed"
 	codeUnsupportedMedia     = "unsupported_media_type"
 	codePayloadTooLarge      = "payload_too_large"
+	codeMediaDisabled        = "media_disabled"
 )
 
 type errorBody struct {
@@ -73,9 +74,16 @@ func orNotFound(err error, format string, args ...any) error {
 
 func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var ae *apiError
+	var mbe *http.MaxBytesError
 	switch {
 	case errors.As(err, &ae):
 		// already shaped
+	case errors.Is(err, training.ErrTooLarge):
+		ae = &apiError{status: http.StatusRequestEntityTooLarge, Code: codePayloadTooLarge, Message: err.Error()}
+	case errors.As(err, &mbe):
+		ae = &apiError{status: http.StatusRequestEntityTooLarge, Code: codePayloadTooLarge, Message: fmt.Sprintf("request body exceeds %d bytes", mbe.Limit)}
+	case errors.Is(err, training.ErrMediaDisabled):
+		ae = &apiError{status: http.StatusNotImplemented, Code: codeMediaDisabled, Message: "video storage is not configured on this server"}
 	case errors.Is(err, training.ErrValidation):
 		ae = &apiError{status: http.StatusBadRequest, Code: codeValidation, Message: err.Error(), Issues: training.IssuesOf(err)}
 	case errors.Is(err, training.ErrNotFound):
