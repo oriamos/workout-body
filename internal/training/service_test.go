@@ -38,7 +38,7 @@ func TestServiceStartSessionDefaultsToLocalDateAndNormalizesSets(t *testing.T) {
 	if err != nil || session.Date != "2026-08-06" {
 		t.Fatalf("StartSession() = %#v, %v", session, err)
 	}
-	set, total, err := svc.AddSet(context.Background(), AddSetInput{SessionID: session.ID, Exercise: "  Bench Press ", WeightKG: 80, Reps: 5, RPE: 8})
+	set, total, err := svc.AddSet(context.Background(), AddSetInput{SessionID: session.ID, Exercise: "  Bench Press ", WeightKG: floatPtr(80), Reps: intPtr(5), RPE: floatPtr(8)})
 	if err != nil || set.Exercise != "bench press" || total != 1 || set.Position != 1 {
 		t.Fatalf("AddSet() = %#v, %v, %v", set, total, err)
 	}
@@ -48,16 +48,16 @@ func TestServicePatchAndAtomicValidation(t *testing.T) {
 	store := newMemoryStore()
 	svc := NewService(store, func() time.Time { return time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC) })
 	session, _ := svc.StartSession(context.Background(), "2026-08-06")
-	set, _, _ := svc.AddSet(context.Background(), AddSetInput{SessionID: session.ID, Exercise: "squat", WeightKG: 100, Reps: 3, RPE: 7})
+	set, _, _ := svc.AddSet(context.Background(), AddSetInput{SessionID: session.ID, Exercise: "squat", WeightKG: floatPtr(100), Reps: intPtr(3), RPE: floatPtr(7)})
 	updated, total, err := svc.UpdateSet(context.Background(), set.ID, SetPatch{RPE: floatPtr(10)})
-	if err != nil || updated.RPE != 10 || updated.SI != 1.4 || total != 1.4 {
+	if err != nil || updated.RPE == nil || *updated.RPE != 10 || updated.SI != 1.4 || total != 1.4 {
 		t.Fatalf("UpdateSet() = %#v, %v, %v", updated, total, err)
 	}
-	if _, _, err := svc.AddSet(context.Background(), AddSetInput{SessionID: session.ID, Exercise: "", WeightKG: 1, Reps: 1, RPE: 1}); !errors.Is(err, ErrValidation) {
+	if _, _, err := svc.AddSet(context.Background(), AddSetInput{SessionID: session.ID, Exercise: "", WeightKG: floatPtr(1), Reps: intPtr(1), RPE: floatPtr(1)}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("invalid add error = %v, want validation", err)
 	}
 	got, _ := svc.GetSession(context.Background(), session.ID)
-	if len(got.Sets) != 1 || got.Sets[0].WeightKG != 100 {
+	if len(got.Sets) != 1 || got.Sets[0].WeightKG == nil || *got.Sets[0].WeightKG != 100 {
 		t.Fatalf("invalid add mutated session: %#v", got)
 	}
 }
@@ -181,28 +181,101 @@ type memoryStore struct {
 func newMemoryStore() *memoryStore {
 	return &memoryStore{sessions: map[int64]Session{}, sets: map[int64]Set{}}
 }
-func (m *memoryStore) Start(_ context.Context, s Session) (Session, error) {
+
+// GetOrCreateWorkout keeps the one-workout-per-date rule of the real store.
+func (m *memoryStore) GetOrCreateWorkout(_ context.Context, date string) (Session, bool, error) {
+	for _, s := range m.sessions {
+		if s.Date == date {
+			return s, false, nil
+		}
+	}
 	m.nextSession++
-	s.ID = m.nextSession
+	s := Session{ID: m.nextSession, Date: date, Revision: 1}
 	m.sessions[s.ID] = s
+	return s, true, nil
+}
+func (m *memoryStore) WorkoutByDate(ctx context.Context, date string) (Session, error) {
+	for _, s := range m.sessions {
+		if s.Date == date {
+			return m.GetSession(ctx, s.ID)
+		}
+	}
+	return Session{}, ErrNotFound
+}
+func (m *memoryStore) LogBatch(ctx context.Context, in BatchInput) (BatchResult, error) {
+	if len(in.Prescriptions) > 0 || in.PlanID != 0 || in.IdempotencyKey != "" || in.ExpectedRevision != nil {
+		panic("unused")
+	}
+	w, created, _ := m.GetOrCreateWorkout(ctx, in.Date)
+	res := BatchResult{Created: created, Sets: []Set{}, Prescriptions: []PlanItem{}}
+	for _, set := range in.Sets {
+		set.SessionID = w.ID
+		s, _, err := m.AddSet(ctx, set)
+		if err != nil {
+			return BatchResult{}, err
+		}
+		res.Sets = append(res.Sets, s)
+	}
+	res.Workout, _ = m.GetSession(ctx, w.ID)
+	return res, nil
+}
+func (m *memoryStore) GetSet(_ context.Context, id int64) (Set, error) {
+	s, ok := m.sets[id]
+	if !ok {
+		return Set{}, ErrNotFound
+	}
 	return s, nil
+}
+func (m *memoryStore) AttachPlan(context.Context, int64, int64) error { panic("unused") }
+func (m *memoryStore) Exercises(context.Context) ([]Exercise, error)  { return nil, nil }
+
+// GetExercise knows no exercises, so names are only normalized, never resolved.
+func (m *memoryStore) GetExercise(context.Context, string) (Exercise, error) {
+	return Exercise{}, ErrNotFound
+}
+func (m *memoryStore) AddExerciseAlias(context.Context, int64, string) error { panic("unused") }
+func (m *memoryStore) RemoveExerciseAlias(context.Context, string) error     { panic("unused") }
+func (m *memoryStore) RenameExercise(context.Context, int64, string) error   { panic("unused") }
+func (m *memoryStore) ImportPlan(context.Context, Plan, string, bool) (PlanImportResult, error) {
+	panic("unused")
+}
+func (m *memoryStore) ReplacePlan(context.Context, int64, Plan, *int) (Plan, error) {
+	panic("unused")
+}
+func (m *memoryStore) DeletePlanExpected(context.Context, int64, *int) error { panic("unused") }
+func (m *memoryStore) SetRecords(context.Context, string, string) ([]SetRecord, error) {
+	panic("unused")
+}
+
+func siOf(rpe *float64) float64 {
+	if rpe == nil {
+		return 0
+	}
+	return CalculateSI(*rpe)
 }
 func (m *memoryStore) AddSet(_ context.Context, in AddSetInput) (Set, float64, error) {
 	m.nextSet++
-	s := Set{ID: m.nextSet, SessionID: in.SessionID, Position: 1, Exercise: in.Exercise, WeightKG: in.WeightKG, Reps: in.Reps, RPE: in.RPE, SI: CalculateSI(in.RPE), Technique: in.Technique, Superset: in.Superset}
+	pos := 1
+	for _, existing := range m.sets {
+		if existing.SessionID == in.SessionID {
+			pos++
+		}
+	}
+	s := Set{ID: m.nextSet, SessionID: in.SessionID, Position: pos, Exercise: in.Exercise, WeightKG: in.WeightKG, Reps: in.Reps, RPE: in.RPE, RIR: in.RIR, SetType: in.SetType, Notes: in.Notes, SI: siOf(in.RPE), Technique: in.Technique, Superset: in.Superset, Revision: 1}
 	m.sets[s.ID] = s
 	return s, s.SI, nil
 }
 func (m *memoryStore) UpdateSet(_ context.Context, id int64, p SetPatch) (Set, float64, error) {
 	s := m.sets[id]
 	if p.RPE != nil {
-		s.RPE = *p.RPE
-		s.SI = CalculateSI(s.RPE)
+		s.RPE = p.RPE
+		s.SI = siOf(s.RPE)
 	}
+	s.Revision++
 	m.sets[id] = s
 	return s, s.SI, nil
 }
-func (m *memoryStore) DeleteSet(context.Context, int64) (int64, float64, int, error) {
+func (m *memoryStore) DeleteSet(context.Context, int64, *int) (int64, float64, int, error) {
 	return 0, 0, 0, nil
 }
 func (m *memoryStore) GetSession(_ context.Context, id int64) (Session, error) {
@@ -248,7 +321,7 @@ func TestServiceRecentExercises(t *testing.T) {
 	})
 	t.Run("results pass through in store order", func(t *testing.T) {
 		store := newMemoryStore()
-		store.recentResults = []ExerciseMemory{{Exercise: "squat", WeightKG: 100, Reps: 3, RPE: 8}}
+		store.recentResults = []ExerciseMemory{{Exercise: "squat", WeightKG: floatPtr(100), Reps: intPtr(3), RPE: floatPtr(8)}}
 		got, err := svc(store).RecentExercises(context.Background(), 5)
 		if err != nil || !reflect.DeepEqual(got, store.recentResults) {
 			t.Fatalf("RecentExercises() = %#v, %v", got, err)
@@ -361,7 +434,7 @@ func TestServiceDeleteSessionValidation(t *testing.T) {
 		t.Fatalf("DeleteSession(0) error = %v, want validation", err)
 	}
 	session, _ := svc.StartSession(context.Background(), "2026-08-07")
-	if _, _, err := svc.AddSet(context.Background(), AddSetInput{SessionID: session.ID, Exercise: "banca", WeightKG: 80, Reps: 5, RPE: 8}); err != nil {
+	if _, _, err := svc.AddSet(context.Background(), AddSetInput{SessionID: session.ID, Exercise: "banca", WeightKG: floatPtr(80), Reps: intPtr(5), RPE: floatPtr(8)}); err != nil {
 		t.Fatal(err)
 	}
 	n, err := svc.DeleteSession(context.Background(), session.ID)
@@ -658,23 +731,32 @@ func TestServiceLogSetCreatesTodaysSessionOnceAndRecordsRepeats(t *testing.T) {
 	svc := NewService(store, func() time.Time { return time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC) })
 	ctx := context.Background()
 
-	session, sets, err := svc.LogSet(ctx, " Press Banca ", 80, 10, 9, 3, "")
-	if err != nil || len(sets) != 3 {
-		t.Fatalf("LogSet() = %#v, %v", sets, err)
+	set := func(exercise string) AddSetInput {
+		return AddSetInput{Exercise: exercise, WeightKG: floatPtr(80), Reps: intPtr(10), RPE: floatPtr(9)}
 	}
-	if session.Date != "2026-08-08" || sets[0].Exercise != "press banca" {
+	res, err := svc.LogSet(ctx, "", set(" Press Banca "), 3, "")
+	if err != nil || len(res.Sets) != 3 {
+		t.Fatalf("LogSet() = %#v, %v", res, err)
+	}
+	session, sets := res.Workout, res.Sets
+	if session.Date != "2026-08-08" || sets[0].Exercise != "press banca" || !res.Created {
 		t.Fatalf("session/exercise wrong: %#v %#v", session, sets[0])
+	}
+	// A second log the same day reuses the workout instead of creating another.
+	again, err := svc.LogSet(ctx, "", set("press banca"), 1, "")
+	if err != nil || again.Created || again.Workout.ID != session.ID || len(store.sessions) != 1 {
+		t.Fatalf("second LogSet() = %#v, %v; sessions %d", again, err, len(store.sessions))
 	}
 	// Invalid input must not leave an empty session behind.
 	store2 := newMemoryStore()
 	svc2 := NewService(store2, func() time.Time { return time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC) })
-	if _, _, err := svc2.LogSet(ctx, "", 80, 10, 9, 1, ""); !errors.Is(err, ErrValidation) {
+	if _, err := svc2.LogSet(ctx, "", set(""), 1, ""); !errors.Is(err, ErrValidation) {
 		t.Fatalf("LogSet with empty exercise = %v, want validation", err)
 	}
 	if len(store2.sessions) != 0 {
 		t.Fatalf("a rejected log created a session: %#v", store2.sessions)
 	}
-	if _, _, err := svc.LogSet(ctx, "banca", 80, 10, 9, 21, ""); !errors.Is(err, ErrValidation) {
+	if _, err := svc.LogSet(ctx, "", set("banca"), 21, ""); !errors.Is(err, ErrValidation) {
 		t.Fatalf("count above the cap = %v, want validation", err)
 	}
 }
@@ -686,14 +768,14 @@ func TestServiceNormalizesAndBoundsTechnique(t *testing.T) {
 	session, _ := svc.StartSession(ctx, "2026-08-08")
 
 	set, _, err := svc.AddSet(ctx, AddSetInput{
-		SessionID: session.ID, Exercise: "banca", WeightKG: 80, Reps: 8, RPE: 9,
+		SessionID: session.ID, Exercise: "banca", WeightKG: floatPtr(80), Reps: intPtr(8), RPE: floatPtr(9),
 		Technique: "  Drop   Set  ",
 	})
 	if err != nil || set.Technique != "drop set" {
 		t.Fatalf("technique = %q, %v, want normalized", set.Technique, err)
 	}
 	_, _, err = svc.AddSet(ctx, AddSetInput{
-		SessionID: session.ID, Exercise: "banca", WeightKG: 80, Reps: 8, RPE: 9,
+		SessionID: session.ID, Exercise: "banca", WeightKG: floatPtr(80), Reps: intPtr(8), RPE: floatPtr(9),
 		Technique: strings.Repeat("x", 41),
 	})
 	if !errors.Is(err, ErrValidation) {
@@ -735,16 +817,16 @@ func TestServiceDerivesSupersetFromTheSessionPlan(t *testing.T) {
 	ctx := context.Background()
 	session, _ := svc.StartSession(ctx, "2026-08-08")
 
-	set, _, err := svc.AddSet(ctx, AddSetInput{SessionID: session.ID, Exercise: "pull over", WeightKG: 40, Reps: 10, RPE: 8})
+	set, _, err := svc.AddSet(ctx, AddSetInput{SessionID: session.ID, Exercise: "pull over", WeightKG: floatPtr(40), Reps: intPtr(10), RPE: floatPtr(8)})
 	if err != nil || set.Superset != "A" {
 		t.Fatalf("superset = %q, %v, want derived 'A'", set.Superset, err)
 	}
 	// An explicit label wins, for work done off any plan.
-	set, _, err = svc.AddSet(ctx, AddSetInput{SessionID: session.ID, Exercise: "pull over", WeightKG: 40, Reps: 10, RPE: 8, Superset: " B "})
+	set, _, err = svc.AddSet(ctx, AddSetInput{SessionID: session.ID, Exercise: "pull over", WeightKG: floatPtr(40), Reps: intPtr(10), RPE: floatPtr(8), Superset: " B "})
 	if err != nil || set.Superset != "B" {
 		t.Fatalf("explicit superset = %q, %v", set.Superset, err)
 	}
-	other, _, err := svc.AddSet(ctx, AddSetInput{SessionID: session.ID, Exercise: "curl", WeightKG: 10, Reps: 12, RPE: 8})
+	other, _, err := svc.AddSet(ctx, AddSetInput{SessionID: session.ID, Exercise: "curl", WeightKG: floatPtr(10), Reps: intPtr(12), RPE: floatPtr(8)})
 	if err != nil || other.Superset != "" {
 		t.Fatalf("unlabelled exercise = %q", other.Superset)
 	}
@@ -806,7 +888,7 @@ func TestServiceUpdatePlanEditsIdentityOnly(t *testing.T) {
 
 func TestSuggestLoadJudgesAgainstThePrescription(t *testing.T) {
 	set := func(w float64, reps int, rpe float64) *ExerciseSet {
-		return &ExerciseSet{WeightKG: w, Reps: reps, RPE: rpe}
+		return &ExerciseSet{WeightKG: &w, Reps: &reps, RPE: &rpe}
 	}
 	for _, tt := range []struct {
 		name      string
@@ -828,8 +910,8 @@ func TestSuggestLoadJudgesAgainstThePrescription(t *testing.T) {
 			if got.DeltaKG != tt.wantDelta {
 				t.Fatalf("delta = %v, want %v (%s)", got.DeltaKG, tt.wantDelta, got.Reason)
 			}
-			if got.SuggestedKG != tt.last.WeightKG+tt.wantDelta {
-				t.Fatalf("suggested = %v, want %v", got.SuggestedKG, tt.last.WeightKG+tt.wantDelta)
+			if got.SuggestedKG != *tt.last.WeightKG+tt.wantDelta {
+				t.Fatalf("suggested = %v, want %v", got.SuggestedKG, *tt.last.WeightKG+tt.wantDelta)
 			}
 			if got.Reason == "" {
 				t.Fatal("advice must explain itself")
@@ -844,7 +926,7 @@ func TestSuggestLoadRefusesWithoutEnoughToJudge(t *testing.T) {
 	if none.DeltaKG != 0 || none.SuggestedKG != 0 || !strings.Contains(none.Reason, "Sin series previas") {
 		t.Fatalf("no history = %#v", none)
 	}
-	noRx := SuggestLoad(&ExerciseSet{WeightKG: 80, Reps: 20, RPE: 6}, 0, 0, 0)
+	noRx := SuggestLoad(&ExerciseSet{WeightKG: floatPtr(80), Reps: intPtr(20), RPE: floatPtr(6)}, 0, 0, 0)
 	if noRx.DeltaKG != 0 || noRx.SuggestedKG != 80 || !strings.Contains(noRx.Reason, "Sin prescripción") {
 		t.Fatalf("no prescription = %#v", noRx)
 	}
@@ -856,8 +938,8 @@ func TestServiceSuggestLoadIgnoresTechniqueSets(t *testing.T) {
 	ctx := context.Background()
 	// Newest first: a drop set, then the real straight set to judge.
 	store.historyResult = ExerciseHistory{Sets: []ExerciseSet{
-		{WeightKG: 40, Reps: 15, RPE: 10, Technique: "drop set"},
-		{WeightKG: 80, Reps: 12, RPE: 8},
+		{WeightKG: floatPtr(40), Reps: intPtr(15), RPE: floatPtr(10), Technique: "drop set"},
+		{WeightKG: floatPtr(80), Reps: intPtr(12), RPE: floatPtr(8)},
 	}}
 	got, err := svc.SuggestLoad(ctx, " Banca ")
 	if err != nil || got.Exercise != "banca" {

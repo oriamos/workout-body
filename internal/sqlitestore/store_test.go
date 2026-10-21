@@ -15,16 +15,16 @@ func TestStorePersistsAndResequencesAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := store.Start(context.Background(), training.Session{Date: "2026-08-06"})
+	session, err := startSession(context.Background(), store, "2026-08-06", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, in := range []training.AddSetInput{{SessionID: session.ID, Exercise: "squat", WeightKG: 100, Reps: 5, RPE: 7}, {SessionID: session.ID, Exercise: "press", WeightKG: 50, Reps: 5, RPE: 8}, {SessionID: session.ID, Exercise: "row", WeightKG: 60, Reps: 5, RPE: 9}} {
+	for _, in := range []training.AddSetInput{{SessionID: session.ID, Exercise: "squat", WeightKG: fp(100), Reps: ip(5), RPE: fp(7)}, {SessionID: session.ID, Exercise: "press", WeightKG: fp(50), Reps: ip(5), RPE: fp(8)}, {SessionID: session.ID, Exercise: "row", WeightKG: fp(60), Reps: ip(5), RPE: fp(9)}} {
 		if _, _, err := store.AddSet(context.Background(), in); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, _, _, err := store.DeleteSet(context.Background(), 2); err != nil {
+	if _, _, _, err := store.DeleteSet(context.Background(), 2, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -46,7 +46,7 @@ func TestStoreListsWithFiltersAndLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, date := range []string{"2026-08-01", "2026-08-03", "2026-08-02"} {
-		if _, err := store.Start(context.Background(), training.Session{Date: date}); err != nil {
+		if _, err := startSession(context.Background(), store, date, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -65,14 +65,14 @@ func TestStoreRecentExercisesReturnsLastSetPerExerciseNewestFirst(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := store.Start(context.Background(), training.Session{Date: "2026-08-07"})
+	session, err := startSession(context.Background(), store, "2026-08-07", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, in := range []training.AddSetInput{
-		{SessionID: session.ID, Exercise: "squat", WeightKG: 100, Reps: 5, RPE: 8},
-		{SessionID: session.ID, Exercise: "bench", WeightKG: 80, Reps: 5, RPE: 8},
-		{SessionID: session.ID, Exercise: "squat", WeightKG: 110, Reps: 3, RPE: 9},
+		{SessionID: session.ID, Exercise: "squat", WeightKG: fp(100), Reps: ip(5), RPE: fp(8)},
+		{SessionID: session.ID, Exercise: "bench", WeightKG: fp(80), Reps: ip(5), RPE: fp(8)},
+		{SessionID: session.ID, Exercise: "squat", WeightKG: fp(110), Reps: ip(3), RPE: fp(9)},
 	} {
 		if _, _, err := store.AddSet(context.Background(), in); err != nil {
 			t.Fatal(err)
@@ -84,8 +84,8 @@ func TestStoreRecentExercisesReturnsLastSetPerExerciseNewestFirst(t *testing.T) 
 	}
 	// One entry per exercise, most recently used first, carrying the latest values.
 	want := []training.ExerciseMemory{
-		{Exercise: "squat", WeightKG: 110, Reps: 3, RPE: 9},
-		{Exercise: "bench", WeightKG: 80, Reps: 5, RPE: 8},
+		{Exercise: "squat", WeightKG: fp(110), Reps: ip(3), RPE: fp(9)},
+		{Exercise: "bench", WeightKG: fp(80), Reps: ip(5), RPE: fp(8)},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("RecentExercises() = %#v, want %#v", got, want)
@@ -102,13 +102,13 @@ func TestStoreAddSetReturnsCurrentSessionTotal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	session, err := store.Start(context.Background(), training.Session{Date: "2026-08-06"})
+	session, err := startSession(context.Background(), store, "2026-08-06", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i, want := range []float64{1.0, 2.4, 2.4} {
 		_, total, err := store.AddSet(context.Background(), training.AddSetInput{
-			SessionID: session.ID, Exercise: "press", WeightKG: 50, Reps: 5, RPE: []float64{8, 10, 2}[i],
+			SessionID: session.ID, Exercise: "press", WeightKG: fp(50), Reps: ip(5), RPE: fp([]float64{8, 10, 2}[i]),
 		})
 		if err != nil || total != want {
 			t.Fatalf("add %d total=%v err=%v want=%v", i+1, total, err, want)
@@ -122,14 +122,14 @@ func TestStoreNormalizesMultiSetTotal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	session, err := store.Start(context.Background(), training.Session{Date: "2026-08-06"})
+	session, err := startSession(context.Background(), store, "2026-08-06", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var total float64
 	for _, rpe := range []float64{9, 9, 10} {
 		_, total, err = store.AddSet(context.Background(), training.AddSetInput{
-			SessionID: session.ID, Exercise: "press", WeightKG: 50, Reps: 5, RPE: rpe,
+			SessionID: session.ID, Exercise: "press", WeightKG: fp(50), Reps: ip(5), RPE: fp(rpe),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -146,12 +146,12 @@ func TestStoreDeleteRollbackRestoresRowsAfterInjectedFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	session, err := store.Start(context.Background(), training.Session{Date: "2026-08-06"})
+	session, err := startSession(context.Background(), store, "2026-08-06", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, exercise := range []string{"squat", "press", "row"} {
-		if _, _, err := store.AddSet(context.Background(), training.AddSetInput{SessionID: session.ID, Exercise: exercise, WeightKG: 50, Reps: 5, RPE: 8}); err != nil {
+		if _, _, err := store.AddSet(context.Background(), training.AddSetInput{SessionID: session.ID, Exercise: exercise, WeightKG: fp(50), Reps: ip(5), RPE: fp(8)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -161,7 +161,7 @@ func TestStoreDeleteRollbackRestoresRowsAfterInjectedFailure(t *testing.T) {
 		}
 		return nil
 	}
-	if _, _, _, err := store.DeleteSet(context.Background(), 2); err == nil {
+	if _, _, _, err := store.DeleteSet(context.Background(), 2, nil); err == nil {
 		t.Fatal("injected delete failure should be returned")
 	}
 	store.failpoint = nil
@@ -177,13 +177,13 @@ func TestStoreVolumeByGroupPartitionsSessionSIAndSurfacesUnmapped(t *testing.T) 
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	s1, _ := store.Start(ctx, training.Session{Date: "2026-08-01"})
-	s2, _ := store.Start(ctx, training.Session{Date: "2026-08-05"})
+	s1, _ := startSession(ctx, store, "2026-08-01", 0)
+	s2, _ := startSession(ctx, store, "2026-08-05", 0)
 	for _, in := range []training.AddSetInput{
-		{SessionID: s1.ID, Exercise: "banca", WeightKG: 80, Reps: 5, RPE: 8},  // SI 1.0
-		{SessionID: s1.ID, Exercise: "remo", WeightKG: 60, Reps: 8, RPE: 9},   // SI 1.2
-		{SessionID: s2.ID, Exercise: "banca", WeightKG: 85, Reps: 3, RPE: 10}, // SI 1.4
-		{SessionID: s2.ID, Exercise: "sin mapear", WeightKG: 20, Reps: 10, RPE: 8},
+		{SessionID: s1.ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(5), RPE: fp(8)},  // SI 1.0
+		{SessionID: s1.ID, Exercise: "remo", WeightKG: fp(60), Reps: ip(8), RPE: fp(9)},   // SI 1.2
+		{SessionID: s2.ID, Exercise: "banca", WeightKG: fp(85), Reps: ip(3), RPE: fp(10)}, // SI 1.4
+		{SessionID: s2.ID, Exercise: "sin mapear", WeightKG: fp(20), Reps: ip(10), RPE: fp(8)},
 	} {
 		if _, _, err := store.AddSet(ctx, in); err != nil {
 			t.Fatal(err)
@@ -244,9 +244,9 @@ func TestStoreDeleteSessionRemovesItsSets(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	s, _ := store.Start(ctx, training.Session{Date: "2026-08-01"})
+	s, _ := startSession(ctx, store, "2026-08-01", 0)
 	for range 3 {
-		if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: s.ID, Exercise: "banca", WeightKG: 80, Reps: 5, RPE: 8}); err != nil {
+		if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: s.ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(5), RPE: fp(8)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -268,15 +268,15 @@ func TestStoreExerciseHistoryOrdersNewestFirstAndFindsTheRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	old, _ := store.Start(ctx, training.Session{Date: "2026-07-01"})
-	recent, _ := store.Start(ctx, training.Session{Date: "2026-08-01"})
+	old, _ := startSession(ctx, store, "2026-07-01", 0)
+	recent, _ := startSession(ctx, store, "2026-08-01", 0)
 	if err := store.SetExerciseGroup(ctx, training.ExerciseGroup{Exercise: "banca", MuscleGroup: "pecho"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, in := range []training.AddSetInput{
-		{SessionID: old.ID, Exercise: "banca", WeightKG: 100, Reps: 5, RPE: 9},   // e1RM 116.7 <- record
-		{SessionID: recent.ID, Exercise: "banca", WeightKG: 90, Reps: 5, RPE: 8}, // e1RM 105
-		{SessionID: recent.ID, Exercise: "remo", WeightKG: 60, Reps: 8, RPE: 8},
+		{SessionID: old.ID, Exercise: "banca", WeightKG: fp(100), Reps: ip(5), RPE: fp(9)},   // e1RM 116.7 <- record
+		{SessionID: recent.ID, Exercise: "banca", WeightKG: fp(90), Reps: ip(5), RPE: fp(8)}, // e1RM 105
+		{SessionID: recent.ID, Exercise: "remo", WeightKG: fp(60), Reps: ip(8), RPE: fp(8)},
 	} {
 		if _, _, err := store.AddSet(ctx, in); err != nil {
 			t.Fatal(err)
@@ -322,8 +322,8 @@ func TestStoreWeeklyVolumeBucketsByMondayOfTheTrainingWeek(t *testing.T) {
 	// 2026-08-05 is a Wednesday, 2026-08-09 the Sunday of the same week,
 	// 2026-08-10 the Monday of the next one.
 	for _, d := range []string{"2026-08-05", "2026-08-09", "2026-08-10"} {
-		s, _ := store.Start(ctx, training.Session{Date: d})
-		if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: s.ID, Exercise: "banca", WeightKG: 80, Reps: 5, RPE: 8}); err != nil {
+		s, _ := startSession(ctx, store, d, 0)
+		if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: s.ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(5), RPE: fp(8)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -376,17 +376,17 @@ func TestStorePlanRoundTripAndSessionProgress(t *testing.T) {
 	}
 
 	// A session started from the plan snapshots its name.
-	session, err := store.Start(ctx, training.Session{Date: "2026-08-08", PlanID: plan.ID})
+	session, err := startSession(ctx, store, "2026-08-08", plan.ID)
 	if err != nil || session.PlanName != "Empuje A" {
-		t.Fatalf("Start() = %#v, %v", session, err)
+		t.Fatalf("startSession() = %#v, %v", session, err)
 	}
 	for range 2 {
-		if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: session.ID, Exercise: "banca", WeightKG: 80, Reps: 9, RPE: 9}); err != nil {
+		if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: session.ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(9), RPE: fp(9)}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// One exercise done that the plan never prescribed.
-	if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: session.ID, Exercise: "curl", WeightKG: 10, Reps: 12, RPE: 8}); err != nil {
+	if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: session.ID, Exercise: "curl", WeightKG: fp(10), Reps: ip(12), RPE: fp(8)}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -460,7 +460,7 @@ func TestStoreSessionItemsAreASnapshotOfThePlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := store.Start(ctx, training.Session{Date: "2026-08-08", PlanID: plan.ID})
+	session, err := startSession(ctx, store, "2026-08-08", plan.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +500,7 @@ func TestStoreSessionItemsAreASnapshotOfThePlan(t *testing.T) {
 	}
 
 	// Removing an item leaves its logged sets, which resurface as off-plan.
-	if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: session.ID, Exercise: "banca", WeightKG: 80, Reps: 8, RPE: 8}); err != nil {
+	if _, _, err := store.AddSet(ctx, training.AddSetInput{SessionID: session.ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(8), RPE: fp(8)}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.RemoveSessionItem(ctx, session.ID, "banca"); err != nil {
@@ -524,14 +524,30 @@ func TestStoreSessionItemsAreASnapshotOfThePlan(t *testing.T) {
 func intPtr(v int) *int    { return &v }
 func boolPtr(v bool) *bool { return &v }
 
+func fp(v float64) *float64 { return &v }
+func ip(v int) *int         { return &v }
+
+// startSession replaces the removed Store.Start: there is one workout per
+// date, got or created, optionally made to follow a plan.
+func startSession(ctx context.Context, store *Store, date string, planID int64) (training.Session, error) {
+	w, _, err := store.GetOrCreateWorkout(ctx, date)
+	if err != nil || planID == 0 {
+		return w, err
+	}
+	if err := store.AttachPlan(ctx, w.ID, planID); err != nil {
+		return training.Session{}, err
+	}
+	return store.GetSession(ctx, w.ID)
+}
+
 func TestStoreFeedbackUpsertsAndReportsTheLatestPerGroup(t *testing.T) {
 	store, err := Open(t.TempDir() + "/training.db")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	older, _ := store.Start(ctx, training.Session{Date: "2026-08-01"})
-	newer, _ := store.Start(ctx, training.Session{Date: "2026-08-08"})
+	older, _ := startSession(ctx, store, "2026-08-01", 0)
+	newer, _ := startSession(ctx, store, "2026-08-08", 0)
 
 	if err := store.SetFeedback(ctx, older.ID, training.Feedback{MuscleGroup: "pecho", Fatigue: 1, Pump: 1, Recovery: 1}); err != nil {
 		t.Fatal(err)
@@ -570,9 +586,9 @@ func TestStoreUpdateSetRecalculatesAndCarriesTechnique(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	session, _ := store.Start(ctx, training.Session{Date: "2026-08-08"})
+	session, _ := startSession(ctx, store, "2026-08-08", 0)
 	set, _, err := store.AddSet(ctx, training.AddSetInput{
-		SessionID: session.ID, Exercise: "banca", WeightKG: 80, Reps: 8, RPE: 8,
+		SessionID: session.ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(8), RPE: fp(8),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -583,7 +599,7 @@ func TestStoreUpdateSetRecalculatesAndCarriesTechnique(t *testing.T) {
 		t.Fatalf("UpdateSet() = %#v, %v, %v", updated, total, err)
 	}
 	// Untouched fields survive a partial patch.
-	if updated.WeightKG != 80 || updated.Reps != 8 || updated.Exercise != "banca" {
+	if updated.WeightKG == nil || *updated.WeightKG != 80 || updated.Reps == nil || *updated.Reps != 8 || updated.Exercise != "banca" {
 		t.Fatalf("partial patch clobbered other fields: %#v", updated)
 	}
 	if _, _, err := store.UpdateSet(ctx, 9999, training.SetPatch{RPE: &rpe}); !errors.Is(err, training.ErrNotFound) {
@@ -597,7 +613,7 @@ func TestStoreSessionItemsAddedAdHocAndSupersetLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	session, _ := store.Start(ctx, training.Session{Date: "2026-08-08"})
+	session, _ := startSession(ctx, store, "2026-08-08", 0)
 
 	// An exercise added to a session that follows no plan at all.
 	if err := store.SetSessionItem(ctx, session.ID, training.PlanItem{
@@ -696,9 +712,9 @@ func TestStoreSnapshotProducesAReadableCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	session, _ := store.Start(ctx, training.Session{Date: "2026-08-08"})
+	session, _ := startSession(ctx, store, "2026-08-08", 0)
 	if _, _, err := store.AddSet(ctx, training.AddSetInput{
-		SessionID: session.ID, Exercise: "banca", WeightKG: 80, Reps: 8, RPE: 9,
+		SessionID: session.ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(8), RPE: fp(9),
 	}); err != nil {
 		t.Fatal(err)
 	}
