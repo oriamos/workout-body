@@ -1,0 +1,24 @@
+import { chromium } from 'playwright-core';
+import path from 'node:path';
+const out = process.env.SHOTS ?? '/tmp/shots';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
+const mk = async (w, h, theme) => {
+  const ctx = await b.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2, hasTouch: w < 700 });
+  await ctx.addInitScript((t) => localStorage.setItem('theme', t), theme);
+  return ctx.newPage();
+};
+let p = await mk(1280, 800, 'light');
+await p.goto('http://127.0.0.1:5173/#/today'); await p.waitForSelector('.wv');
+await p.screenshot({ path: path.join(out, 'T-d-light-today.png') });
+await p.goto('http://127.0.0.1:5173/#/history/2026-10-19'); await p.reload(); await p.waitForSelector('.wv');
+await p.screenshot({ path: path.join(out, 'T-d-light-history.png') });
+await p.goto('http://127.0.0.1:5173/#/plans/upper-a'); await p.reload(); await p.waitForSelector('.plan-detail');
+await p.screenshot({ path: path.join(out, 'T-d-light-plans.png') });
+p = await mk(390, 844, 'light');
+await p.goto('http://127.0.0.1:5173/#/today'); await p.waitForSelector('.ex');
+await p.getByRole('button', { name: /הסבר וסרטון, Bench Press/ }).click(); await p.waitForSelector('.howto'); await p.waitForTimeout(500);
+await p.screenshot({ path: path.join(out, 'T-m-light-sheet.png') });
+p = await mk(390, 844, 'dark');
+await p.goto('http://127.0.0.1:5173/#/today'); await p.waitForSelector('.ex'); await p.waitForTimeout(300);
+await p.screenshot({ path: path.join(out, 'T-m-dark-today.png') });
+await b.close();

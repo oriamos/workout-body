@@ -107,12 +107,12 @@ export function ExerciseScreen({ id }: { id: string }) {
                 <LineChart points={pts} start={start} end={today} unit={METRICS[metric].unit} label={`${METRICS[metric].label} של ${ex.name}`} estimate={metric === 'e1rm'} zeroBased={metric === 'volume' || metric === 'reps'} />
               </section>
 
-              <section className="prog-block" style={{ marginTop: 22 }} aria-label="הסבר וסרטונים">
+              <section className="prog-block glass-panel" style={{ marginTop: 16 }} aria-label="הסבר וסרטונים">
                 <h2 className="block-title">איך מבצעים</h2>
                 <GuideTabs ex={ex} />
               </section>
 
-              <section className="prog-block" style={{ marginTop: 22 }} aria-label="שיאים אישיים">
+              <section className="prog-block glass-panel" style={{ marginTop: 16 }} aria-label="שיאים אישיים">
                 <h2 className="block-title">שיאים אישיים</h2>
                 <dl className="pb-grid">
                   {pbWeight && <div className="pb"><dt>משקל מרבי</dt><dd><Ltr>{kg(pbWeight.v)}</Ltr> <small>ק״ג × {pbWeight.set.reps}</small><span className="when">{shortDate(pbWeight.date)}</span></dd></div>}
@@ -129,7 +129,7 @@ export function ExerciseScreen({ id }: { id: string }) {
               </section>
             </div>
 
-            <section aria-label="היסטוריית אימונים">
+            <section className="glass-panel" aria-label="היסטוריית אימונים">
               <h2 className="block-title" style={{ marginBottom: 8 }}>סשן אחר סשן <span className="muted" style={{ fontWeight: 400 }}>({sessions.length})</span></h2>
               <div className="sessions">
                 {rows.map((s) => {

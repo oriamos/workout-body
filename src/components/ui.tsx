@@ -61,9 +61,47 @@ export function EmptyState({ icon, title, children, action }: { icon?: IconName;
   );
 }
 
+/** Apple's rubber-band: the further past the edge, the less the sheet follows. */
+const rubberband = (over: number, dim = 320, c = 0.55) => (over * dim * c) / (dim + c * Math.abs(over));
+
 export function Sheet({ open, onClose, title, children, footer, wide = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
+  const drag = useRef<{ startY: number; lastY: number; lastT: number; v: number } | null>(null);
+  const isDesktop = () => window.matchMedia('(min-width: 640px)').matches;
+  const down = (e: React.PointerEvent) => {
+    if (isDesktop() || (e.target as HTMLElement).closest('button')) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = { startY: e.clientY, lastY: e.clientY, lastT: performance.now(), v: 0 };
+    if (ref.current) ref.current.style.transition = 'none'; // 1:1 tracking, no easing while the finger is down
+  };
+  const move = (e: React.PointerEvent) => {
+    const g = drag.current;
+    if (!g || !ref.current) return;
+    const now = performance.now();
+    g.v = (e.clientY - g.lastY) / Math.max(1, now - g.lastT); // px/ms
+    g.lastY = e.clientY;
+    g.lastT = now;
+    const dy = e.clientY - g.startY;
+    ref.current.style.transform = `translateY(${dy > 0 ? dy : rubberband(dy)}px)`;
+  };
+  const up = (e: React.PointerEvent) => {
+    const g = drag.current;
+    const d = ref.current;
+    drag.current = null;
+    if (!g || !d) return;
+    const dy = e.clientY - g.startY;
+    const projected = dy + g.v * 499; // momentum projection, deceleration 0.998
+    if (projected > 160 || g.v > 0.8) {
+      d.style.transition = 'transform 220ms var(--ease-out), opacity 200ms ease';
+      d.style.transform = 'translateY(115%)';
+      window.setTimeout(onClose, 170);
+    } else {
+      d.style.transition = 'transform 420ms var(--ease-drawer)';
+      d.style.transform = 'none';
+      window.setTimeout(() => { d.style.transition = ''; d.style.transform = ''; }, 440);
+    }
+  };
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
@@ -75,14 +113,18 @@ export function Sheet({ open, onClose, title, children, footer, wide = false }: 
       ref={ref}
       className={`sheet ${wide ? 'sheet-wide' : ''}`}
       aria-labelledby={id}
-      onClose={onClose}
+      onClose={() => {
+        if (ref.current) { ref.current.style.transition = ''; ref.current.style.transform = ''; }
+        onClose();
+      }}
       onClick={(e) => {
         if (e.target === ref.current) onClose();
       }}
     >
       {open && (
         <div className="sheet-inner">
-          <header className="sheet-head">
+          <header className="sheet-head" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+            <span className="sheet-grab" aria-hidden="true" />
             <h2 id={id}>{title}</h2>
             <IconButton icon="x" label="סגירה" onClick={onClose} />
           </header>

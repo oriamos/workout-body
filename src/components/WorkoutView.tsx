@@ -70,7 +70,7 @@ export function WorkoutView({ workout }: { workout: Workout }) {
   const extra = workout.exercises.filter((we) => !we.planned);
   const isToday = workout.date === state.data.today;
   return (
-    <>
+    <div className="wv">
       <div className="ex-list">
         {planned.map((we) => <ExerciseCard key={we.id} workout={workout} we={we} />)}
       </div>
@@ -87,6 +87,6 @@ export function WorkoutView({ workout }: { workout: Workout }) {
         <p className="muted small">{isToday ? 'התרגיל יתווסף לאימון של היום בלבד.' : 'התרגיל יתווסף לאימון הזה בלבד.'}</p>
       </div>
       <AddExerciseSheet open={adding} onClose={() => setAdding(false)} onPick={(id) => actions.addExercise(id, workout.id)} exclude={workout.exercises.map((w) => w.exerciseId)} />
-    </>
+    </div>
   );
 }

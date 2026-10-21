@@ -1,6 +1,6 @@
 # workout-body
 
-Interface prototype for a personal strength-training tracker (Hebrew, RTL, dark, mobile-first).
+Interface prototype for a personal strength-training tracker (Hebrew, RTL, light liquid-glass look with an optional dark theme, mobile-first).
 Frontend only: all data is synthetic and lives in memory behind a small replaceable data layer.
 No backend, MCP server, auth or workout engine is implemented or implied.
 
@@ -22,4 +22,4 @@ node scripts/flows.mjs   # interaction smoke test (needs the dev server + Chromi
 
 ## Design skills
 
-`.claude/skills/` holds Impeccable (pbakaus/impeccable) and Emil Kowalski's design-engineering skills. `PRODUCT.md` and `DESIGN.md` record the context Impeccable reads.
+`.claude/skills/` holds Impeccable (pbakaus/impeccable) and Emil Kowalski's design-engineering skills (including `apple-design`, used for the glass materials and sheet gestures). `PRODUCT.md` and `DESIGN.md` record the context Impeccable reads.
