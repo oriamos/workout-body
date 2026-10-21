@@ -1,0 +1,128 @@
+{{define "panel.html"}}<section id="panel" class="panel"
+  {{with .LastSet}}data-last-exercise="{{.Exercise}}" data-last-weight="{{num .WeightKG}}" data-last-reps="{{.Reps}}" data-last-rpe="{{num .RPE}}"{{end}}>
+
+  {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+
+  {{if .Progress}}
+  <section class="plan card" aria-label="Plan de hoy">
+    <header class="plan-head">
+      <strong>{{if .Session.PlanName}}{{.Session.PlanName}}{{else}}Plan de hoy{{end}}</strong>
+      <span class="muted">{{doneCount .Progress}}/{{len .Progress}} ejercicios</span>
+    </header>
+    {{if .PlanNotes}}<p class="plan-note">{{.PlanNotes}}</p>{{end}}
+    <ol class="planned">
+      {{range .Progress}}
+      <li class="{{if .Skipped}}skipped{{else if .Done}}ok{{end}}{{if eq .TargetSets 0}} extra{{end}}{{if .Superset}} in-ss{{end}}"
+          data-exercise="{{.Exercise}}"
+          data-superset="{{.Superset}}"
+          data-reps="{{targetReps .}}"
+          data-rpe="{{num .TargetRPE}}">
+        <span class="chk">{{if .Skipped}}—{{else if .Done}}✓{{else}}○{{end}}</span>
+        <span class="what">
+          <span class="ex">{{if .Superset}}<span class="ss">{{.Superset}}</span>{{end}}{{.Exercise}}</span>
+          <span class="rx">
+            {{- if eq .TargetSets 0}}fuera de plan
+            {{- else}}{{.RepMin}}{{if ne .RepMax .RepMin}}-{{.RepMax}}{{end}} reps{{if .TargetRPE}} @{{num .TargetRPE}}{{end}}{{end -}}
+          </span>
+          {{if .Notes}}<span class="item-note">{{.Notes}}</span>{{end}}
+        </span>
+        <span class="count">{{.DoneSets}}{{if .TargetSets}}/{{.TargetSets}}{{end}}</span>
+        {{if not $.ReadOnly}}
+        <button type="button" class="more" aria-label="Ajustar {{.Exercise}}">⋯</button>
+        <div class="item-actions" hidden>
+          {{if .TargetSets}}
+          <button type="button" class="mini" hx-post="{{$.Base}}/plan/item" hx-target="#panel" hx-swap="outerHTML"
+                  hx-vals='{"action":"sets","delta":"-1","current":"{{.TargetSets}}","exercise":"{{.Exercise}}"}'>− serie</button>
+          <button type="button" class="mini" hx-post="{{$.Base}}/plan/item" hx-target="#panel" hx-swap="outerHTML"
+                  hx-vals='{"action":"sets","delta":"1","current":"{{.TargetSets}}","exercise":"{{.Exercise}}"}'>+ serie</button>
+          <button type="button" class="mini" hx-post="{{$.Base}}/plan/item" hx-target="#panel" hx-swap="outerHTML"
+                  hx-vals='{"action":"{{if .Skipped}}unskip{{else}}skip{{end}}","exercise":"{{.Exercise}}"}'>{{if .Skipped}}retomar{{else}}saltar{{end}}</button>
+          <button type="button" class="mini swap" data-exercise="{{.Exercise}}">sustituir</button>
+          <button type="button" class="mini danger" hx-post="{{$.Base}}/plan/item" hx-target="#panel" hx-swap="outerHTML"
+                  hx-vals='{"action":"remove","exercise":"{{.Exercise}}"}'
+                  hx-confirm="¿Quitar del plan de hoy? Las series ya hechas se conservan.">quitar</button>
+          {{else}}
+          <button type="button" class="mini" hx-post="{{$.Base}}/plan/item" hx-target="#panel" hx-swap="outerHTML"
+                  hx-vals='{"action":"adopt","done":"{{.DoneSets}}","exercise":"{{.Exercise}}"}'>añadir al plan</button>
+          {{end}}
+        </div>
+        {{end}}
+      </li>
+      {{end}}
+    </ol>
+  </section>
+  {{end}}
+
+  <div class="total">
+    <span>{{len .Session.Sets}} serie{{if ne (len .Session.Sets) 1}}s{{end}} · {{len .Blocks}} ejercicio{{if ne (len .Blocks) 1}}s{{end}}</span>
+    <strong>SI {{num .Session.TotalSI}}</strong>
+  </div>
+
+  {{if .Blocks}}
+  <div class="blocks">
+    {{range .Blocks}}
+    <article class="block">
+      <header>
+        <div>
+          <span class="ex">{{.Exercise}}</span>
+          {{if .MuscleGroup}}<span class="tag">{{.MuscleGroup}}</span>{{end}}
+        </div>
+        <span class="si">{{num .TotalSI}}</span>
+      </header>
+      <ol class="sets">
+        {{$block := .}}
+        {{range $i, $set := .Sets}}
+        <li data-set-id="{{$set.ID}}"
+            data-weight="{{num $set.WeightKG}}" data-reps="{{$set.Reps}}" data-rpe="{{num $set.RPE}}"
+            data-technique="{{$set.Technique}}">
+          <span class="n">{{add $i 1}}</span>
+          <span class="detail">{{num $set.WeightKG}} kg × {{$set.Reps}} @{{num $set.RPE}}{{if $set.Technique}} <span class="tech-tag">{{$set.Technique}}</span>{{end}}</span>
+          {{if $block.IsRecord $set}}<span class="pr" title="Récord: mejor 1RM estimado">PR</span>{{end}}
+          <span class="si">{{num $set.SI}}</span>
+          {{if not $.ReadOnly}}
+          <button class="edit" type="button" aria-label="Editar serie">✎</button>
+          <button class="del" type="button"
+                  hx-post="{{$.Base}}/sets/{{$set.ID}}/delete"
+                  hx-target="#panel" hx-swap="outerHTML"
+                  hx-confirm="¿Borrar esta serie?" aria-label="Borrar serie">✕</button>
+          {{end}}
+        </li>
+        {{end}}
+      </ol>
+    </article>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="empty">Sin series todavía. Añade la primera.</p>
+  {{end}}
+
+  {{if and .TrainedGroups (not .ReadOnly)}}
+  <details class="feedback">
+    <summary>Valorar la sesión <span class="muted">({{len .Feedback}}/{{len .TrainedGroups}})</span></summary>
+    <p class="hint">Solo los músculos que has entrenado hoy. 0 = nada, 3 = mucho.</p>
+    {{range $group := .TrainedGroups}}
+    {{$given := index $.Feedback $group}}
+    <form class="fb" hx-post="{{$.Base}}/feedback" hx-target="#panel" hx-swap="outerHTML">
+      <input type="hidden" name="muscle_group" value="{{$group}}">
+      <div class="fb-head">
+        <strong>{{$group}}</strong>
+        {{if $given.MuscleGroup}}<span class="mag">magnitud {{$given.Magnitude}}</span>{{end}}
+      </div>
+      {{range $dim := ratingDims}}
+      <div class="fb-row">
+        <span>{{index $dim 1}}</span>
+        <div class="scale">
+          {{range $v := ratingScale}}
+          <label><input type="radio" name="{{index $dim 0}}" value="{{$v}}"
+            {{if eq $v (fbValue $given (index $dim 0))}}checked{{end}}><span>{{$v}}</span></label>
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+      <button type="submit" class="mini">Guardar</button>
+    </form>
+    {{end}}
+  </details>
+  {{end}}
+</section>
+{{end}}

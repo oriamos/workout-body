@@ -1,0 +1,13 @@
+# Local AI runtime state
+.atl/
+
+# Local SQLite data
+*.db
+*.db-shm
+*.db-wal
+
+# Credentials and local environment
+.credentials/
+.env
+.env.*
+!.env.example
