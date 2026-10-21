@@ -1,0 +1,48 @@
+{
+  "format": "workout-plan",
+  "version": 1,
+  "name": "Upper A",
+  "notes": "Synthetic example. Heavy upper-body day; rest 2-3 minutes between working sets.",
+  "items": [
+    {
+      "exercise": "bench press",
+      "sets": 4,
+      "rep_min": 5,
+      "rep_max": 8,
+      "target_weight_kg": 70,
+      "target_rpe": 8,
+      "notes": "Pause on the chest. Add weight when all sets reach 8 reps at RPE 8 or lower."
+    },
+    {
+      "exercise": "barbell row",
+      "sets": 4,
+      "rep_min": 6,
+      "rep_max": 10,
+      "target_weight_kg": 60,
+      "target_rir": 2
+    },
+    {
+      "exercise": "overhead press",
+      "sets": 3,
+      "rep_min": 6,
+      "rep_max": 8,
+      "target_rpe": 8,
+      "superset": "A"
+    },
+    {
+      "exercise": "lat pulldown",
+      "sets": 3,
+      "rep_min": 8,
+      "rep_max": 12,
+      "superset": "A"
+    },
+    {
+      "exercise": "dumbbell curl",
+      "sets": 2,
+      "rep_min": 10,
+      "rep_max": 12,
+      "target_rir": 1,
+      "notes": "Optional finisher."
+    }
+  ]
+}

@@ -291,7 +291,7 @@ func TestPanelGroupsSetsByExerciseAndBadgesRecords(t *testing.T) {
 	}
 	old, _ := service.ListSessions(t.Context(), training.ListFilter{Limit: 1})
 	if _, _, err := service.AddSet(t.Context(), training.AddSetInput{
-		SessionID: old[0].ID, Exercise: "banca", WeightKG: 100, Reps: 5, RPE: 9,
+		SessionID: old[0].ID, Exercise: "banca", WeightKG: fp(100), Reps: ip(5), RPE: fp(9),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestEntryFormExposesPreviousPerformanceAndRecord(t *testing.T) {
 	}
 	old, _ := service.ListSessions(t.Context(), training.ListFilter{Limit: 1})
 	if _, _, err := service.AddSet(t.Context(), training.AddSetInput{
-		SessionID: old[0].ID, Exercise: "banca", WeightKG: 100, Reps: 5, RPE: 9,
+		SessionID: old[0].ID, Exercise: "banca", WeightKG: fp(100), Reps: ip(5), RPE: fp(9),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -705,7 +705,7 @@ func TestHistoryShowsNextWeekSetRecommendation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := service.AddSet(t.Context(), training.AddSetInput{
-		SessionID: earlier.ID, Exercise: "banca", WeightKG: 80, Reps: 8, RPE: 8,
+		SessionID: earlier.ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(8), RPE: fp(8),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -774,7 +774,7 @@ func TestTechniqueSetsDoNotBecomeTheRecord(t *testing.T) {
 	if len(history.Sets) != 2 {
 		t.Fatalf("both sets should be in the history: %#v", history.Sets)
 	}
-	if history.Best == nil || history.Best.WeightKG != 80 {
+	if history.Best == nil || history.Best.WeightKG == nil || *history.Best.WeightKG != 80 {
 		t.Fatalf("record should ignore the technique set: %#v", history.Best)
 	}
 }
@@ -905,7 +905,7 @@ func TestExerciseInfoIsAvailableOnDemandForAnyExercise(t *testing.T) {
 	}
 	old, _ := service.ListSessions(t.Context(), training.ListFilter{Limit: 1})
 	if _, _, err := service.AddSet(t.Context(), training.AddSetInput{
-		SessionID: old[0].ID, Exercise: "prensa", WeightKG: 100, Reps: 10, RPE: 9,
+		SessionID: old[0].ID, Exercise: "prensa", WeightKG: fp(100), Reps: ip(10), RPE: fp(9),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -987,7 +987,7 @@ func TestLoadSuggestionIsOfferedWithItsReasoning(t *testing.T) {
 	}
 	old, _ := service.ListSessions(t.Context(), training.ListFilter{Limit: 1})
 	if _, _, err := service.AddSet(t.Context(), training.AddSetInput{
-		SessionID: old[0].ID, Exercise: "banca", WeightKG: 80, Reps: 12, RPE: 8,
+		SessionID: old[0].ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(12), RPE: fp(8),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1013,7 +1013,7 @@ func TestNoLoadSuggestionWhenTheWeightIsRight(t *testing.T) {
 	}
 	old, _ := service.ListSessions(t.Context(), training.ListFilter{Limit: 1})
 	if _, _, err := service.AddSet(t.Context(), training.AddSetInput{
-		SessionID: old[0].ID, Exercise: "banca", WeightKG: 80, Reps: 10, RPE: 9,
+		SessionID: old[0].ID, Exercise: "banca", WeightKG: fp(80), Reps: ip(10), RPE: fp(9),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1111,3 +1111,6 @@ func TestPlanEditsReportInvalidInputInline(t *testing.T) {
 		t.Fatalf("removing a missing exercise should be reported")
 	}
 }
+
+func fp(v float64) *float64 { return &v }
+func ip(v int) *int         { return &v }
