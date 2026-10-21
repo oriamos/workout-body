@@ -40,9 +40,40 @@ Per item:
 Omitted means *not prescribed* — never zero. An explicit `0` for `rep_min`, `rep_max` or `target_rpe`, and `null` for any field, are rejected (leave the field out). Whole numbers (`sets`, `rep_min`, `rep_max`) must be written as integers: `4`, not `4.0`. Unknown fields are rejected, so a
 typo like `target_wieght_kg` is an error instead of being silently ignored.
 
-Items are performed in the order listed. Whether routines rotate (A/B/C) or
-follow weekdays is deliberately not modelled: a plan is just a named routine, and
-you choose which plan to follow on a given date.
+Items are performed in the order listed.
+
+## Schedule (optional)
+
+A plan can say when it is meant to be done. Two forms, both optional and
+mutually exclusive:
+
+```json
+"schedule": { "type": "weekdays", "days": ["mon", "thu"] }
+"schedule": { "type": "times_per_week", "times_per_week": 3 }
+```
+
+| Form | Meaning |
+|---|---|
+| `weekdays` | Fixed days of the week. `days` is 1–7 distinct values from `mon tue wed thu fri sat sun`. The server also accepts full names and any case (`"Thursday"`) and stores them canonically, Monday first. |
+| `times_per_week` | A weekly frequency, 1–7, on whichever days you choose. |
+
+Days are the **local** weekday in the configured timezone; the week runs
+Monday–Sunday. A rotation such as A/B/C is expressed by giving each plan its own
+days (A: mon, B: wed, C: fri) or its own frequency. Several plans may share a
+day.
+
+A schedule is information about the plan. It **never creates or changes a
+workout** — you (or the assistant) still start the day's workout, usually by
+passing the plan's id when logging. What the schedule gives you is the
+[schedule view](http-api.md#schedule) (`GET /api/v1/schedule`, MCP
+`get_schedule`): which plans fall on which dates, whether each day was done, and
+how many sessions of a weekly-frequency plan remain this week. Changing or
+clearing a schedule never touches workouts already created.
+
+Validation reports every problem with its path (`schedule.days[1]: "funday" is
+not a weekday`). `null` is not accepted: leave the field out for an unscheduled
+plan. **On import with `on_conflict=replace`, a document without `schedule`
+clears the existing plan's schedule**, exactly as it replaces the exercises.
 
 ## Import semantics
 

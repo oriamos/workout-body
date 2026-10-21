@@ -45,12 +45,13 @@ explicit values and rejects anything invalid.
 | Exercise history, progression, useful statistics | Implemented — [analytics.md](analytics.md) |
 | Stable exercise identity and aliases; no silent merging | Implemented |
 | Documented HTTP API with OpenAPI | Implemented |
-| Rotating A/B/C vs weekday scheduling | **Undecided** — deliberately not modelled; a plan is a named routine and the user picks which to follow |
+| Plan scheduling: fixed weekdays or a weekly frequency, stored on the plan | Implemented — optional `schedule` on a plan; a schedule view shows what is due and what was done. Rotations (A/B/C) are expressed with per-plan days or frequencies |
 
 ## Non-goals (this phase)
 
 A custom frontend, in-app chatbot or LLM calls, multi-user accounts or RBAC,
-OAuth, billing, cloud sync, coaching features, a schedule engine, a database
+OAuth, billing, cloud sync, coaching features, automatic workout creation or
+reminders from a schedule, calendars beyond a Monday–Sunday week, a database
 server or message broker.
 
 ## Units and conventions

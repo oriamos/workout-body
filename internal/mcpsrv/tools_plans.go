@@ -35,9 +35,39 @@ func (it PlanItemInput) toItem() training.PlanItem {
 }
 
 type CreatePlanInput struct {
-	Name  string          `json:"name" jsonschema:"Name of the plan, e.g. 'Upper A'."`
-	Notes string          `json:"notes,omitempty" jsonschema:"Optional free-text notes about the plan."`
-	Items []PlanItemInput `json:"items" jsonschema:"Ordered exercises; order is the order performed. Each exercise at most once."`
+	Name     string          `json:"name" jsonschema:"Name of the plan, e.g. 'Upper A'."`
+	Notes    string          `json:"notes,omitempty" jsonschema:"Optional free-text notes about the plan."`
+	Items    []PlanItemInput `json:"items" jsonschema:"Ordered exercises; order is the order performed. Each exercise at most once."`
+	Schedule *ScheduleInput  `json:"schedule,omitempty" jsonschema:"Optional schedule: {type:'weekdays', days:['mon','thu']} or {type:'times_per_week', times_per_week:3}. Omit for an unscheduled plan."`
+}
+
+// ScheduleInput says when a plan is meant to be done.
+type ScheduleInput struct {
+	Type         string   `json:"type" jsonschema:"'weekdays' (fixed days of the week) or 'times_per_week' (a weekly frequency on any days)."`
+	Days         []string `json:"days,omitempty" jsonschema:"For type weekdays: days of the week, any of mon, tue, wed, thu, fri, sat, sun (full English names are accepted too), in the configured timezone."`
+	TimesPerWeek int      `json:"times_per_week,omitempty" jsonschema:"For type times_per_week: sessions per Monday-start week, 1-7."`
+}
+
+func (in *ScheduleInput) toSchedule() *training.Schedule {
+	if in == nil {
+		return nil
+	}
+	return &training.Schedule{Type: in.Type, Days: in.Days, TimesPerWeek: in.TimesPerWeek}
+}
+
+const scheduleRule = "A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency; the week starts on Monday. A schedule NEVER creates or changes a workout."
+
+type SetScheduleInput struct {
+	PlanID           int64          `json:"plan_id" jsonschema:"Id of the plan."`
+	Schedule         *ScheduleInput `json:"schedule,omitempty" jsonschema:"The new schedule. null or omitted clears it (the plan becomes unscheduled)."`
+	ExpectedRevision *int           `json:"expected_revision,omitempty" jsonschema:"The plan's revision from your last read; rejected with a conflict if it changed since."`
+}
+type ScheduleRangeInput struct {
+	From string `json:"from,omitempty" jsonschema:"Inclusive first local date YYYY-MM-DD. Omit both from and to for the current Monday-Sunday week; with only from, the 7 days starting there."`
+	To   string `json:"to,omitempty" jsonschema:"Inclusive last local date YYYY-MM-DD; requires from. At most 62 days."`
+}
+type ScheduleOut struct {
+	Schedule training.ScheduleView `json:"schedule"`
 }
 type PlanOut struct {
 	Plan training.Plan `json:"plan"`
@@ -130,8 +160,18 @@ func planDocumentSchema() *jsonschema.Schema {
 			"name":    str("Plan name; import matches existing plans by name, case-insensitively."),
 			"notes":   str("Notes about the whole plan."),
 			"items":   {Type: "array", Items: item, Description: "Exercises in the order performed."},
+			"schedule": {
+				Type:        "object",
+				Description: "Optional schedule: {\"type\":\"weekdays\",\"days\":[\"mon\",\"thu\"]} or {\"type\":\"times_per_week\",\"times_per_week\":3}. Omit for an unscheduled plan; replacing a plan with a document without schedule clears it.",
+				Properties: map[string]*jsonschema.Schema{
+					"type":           str("'weekdays' or 'times_per_week'."),
+					"days":           {Type: "array", Items: str("mon, tue, wed, thu, fri, sat or sun."), Description: "For type weekdays."},
+					"times_per_week": integer("For type times_per_week, 1-7."),
+				},
+				PropertyOrder: []string{"type", "days", "times_per_week"},
+			},
 		},
-		PropertyOrder: []string{"format", "version", "name", "notes", "items"},
+		PropertyOrder: []string{"format", "version", "name", "notes", "schedule", "items"},
 	}
 }
 
@@ -148,11 +188,11 @@ func registerPlanTools(r *registry, service *training.Service) {
 	setNonEmpty(createSchema, "name")
 	addTool(r, &mcp.Tool{
 		Name:        "create_plan",
-		Description: "Create a reusable workout plan: an ordered list of exercises, each with a target set count and optional rep range, target load, RPE and RIR. " + planPrescriptionRule + " To create from a plan document use import_plan.",
+		Description: "Create a reusable workout plan: an ordered list of exercises, each with target_sets and optional rep range, target load, RPE and RIR, plus an optional schedule. " + planPrescriptionRule + " " + scheduleRule + " To create from a plan document use import_plan.",
 		InputSchema: createSchema,
 		Annotations: additive("Create plan", false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in CreatePlanInput) (*mcp.CallToolResult, PlanOut, error) {
-		plan := training.Plan{Name: in.Name, Notes: in.Notes}
+		plan := training.Plan{Name: in.Name, Notes: in.Notes, Schedule: in.Schedule.toSchedule()}
 		for _, it := range in.Items {
 			plan.Items = append(plan.Items, it.toItem())
 		}
@@ -162,7 +202,7 @@ func registerPlanTools(r *registry, service *training.Service) {
 
 	addTool(r, &mcp.Tool{
 		Name:        "list_plans",
-		Description: "List every saved plan with its revision and total planned set count.",
+		Description: "List every saved plan with its revision, schedule (null = unscheduled) and total planned set count.",
 		Annotations: readOnly("List plans"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, PlansOut, error) {
 		v, err := service.ListPlans(ctx)
@@ -173,7 +213,7 @@ func registerPlanTools(r *registry, service *training.Service) {
 	setPositiveID(planSchema, "plan_id")
 	addTool(r, &mcp.Tool{
 		Name:        "get_plan",
-		Description: "Read one plan with its revision (pass it as expected_revision to replace_plan/delete_plan) and ordered exercises with target sets, rep ranges, target load (kg), RPE and RIR.",
+		Description: "Read one plan with its revision (pass it as expected_revision to replace_plan/delete_plan/set_plan_schedule), its schedule (null = unscheduled) and ordered exercises with target sets, rep ranges, target load (kg), RPE and RIR.",
 		InputSchema: planSchema,
 		Annotations: readOnly("Get plan"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in PlanInput) (*mcp.CallToolResult, PlanOut, error) {
@@ -252,7 +292,7 @@ func registerPlanTools(r *registry, service *training.Service) {
 	addTool(r, &mcp.Tool{
 		Name: "import_plan",
 		Description: "Validate a plan document and store it atomically. Plans are matched by name (case-insensitive): a new name creates a plan; an existing name is rejected unless on_conflict='replace', which replaces that plan's notes and exercises in place (keeping its id). " +
-			"Workouts already created from the plan are never changed. Every problem is reported with its JSON path (e.g. items[2].sets) and nothing is written. Use dry_run=true to preview. " +
+			"Workouts already created from the plan are never changed. The document may carry a schedule; replacing a plan with a document that lacks schedule clears the plan's schedule. Every problem is reported with its JSON path (e.g. items[2].sets) and nothing is written. Use dry_run=true to preview. " +
 			"new_exercises lists exercise names that would be/were created, with similar existing names. " + planPrescriptionRule,
 		InputSchema: importSchema,
 		Annotations: destructive("Import plan", true),
@@ -284,5 +324,39 @@ func registerPlanTools(r *registry, service *training.Service) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ReplacePlanInput) (*mcp.CallToolResult, PlanOut, error) {
 		v, err := service.ReplacePlan(ctx, in.PlanID, in.Plan, in.ExpectedRevision)
 		return nil, PlanOut{Plan: v}, toolError(err)
+	})
+
+	schedSchema := inputSchema[SetScheduleInput]()
+	setPositiveID(schedSchema, "plan_id")
+	sp := prop(schedSchema, "schedule")
+	sp.Type, sp.Types = "", []string{"object", "null"}
+	prop(sp, "type").Enum = []any{training.ScheduleWeekdays, training.ScheduleTimesPerWeek}
+	addTool(r, &mcp.Tool{
+		Name: "set_plan_schedule",
+		Description: "Set or replace a plan's schedule; pass schedule null (or omit it) to clear it. Returns the updated plan with its new revision. " + scheduleRule +
+			" Use explicit days or a count exactly as the user stated them ('Mondays and Thursdays' -> days ['mon','thu']; 'three times a week' -> times_per_week 3). " +
+			"Replacing a plan via import_plan(on_conflict='replace') with a document lacking schedule clears it. " + revisionRule,
+		InputSchema: schedSchema,
+		Annotations: destructive("Set plan schedule", true),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SetScheduleInput) (*mcp.CallToolResult, PlanOut, error) {
+		v, err := service.SetPlanSchedule(ctx, in.PlanID, in.Schedule.toSchedule(), in.ExpectedRevision)
+		return nil, PlanOut{Plan: v}, toolError(err)
+	})
+
+	rangeSchema := inputSchema[ScheduleRangeInput]()
+	setDate(rangeSchema, "from", "to")
+	addTool(r, &mcp.Tool{
+		Name: "get_schedule",
+		Description: "What is planned for a range of local dates (default: the current Monday-Sunday week in the configured timezone). Read-only: never creates a workout. Returns today and timezone; " +
+			"days[] with each date's weekday, the plans scheduled on it by fixed weekdays and their status, and the workout that exists on that date (id, plan, working sets, revision) if any; " +
+			"weekly_targets[] for times_per_week plans per Monday-start week (target, completed = workouts following the plan with completed working sets, remaining, dates); and unscheduled_plans[]. " +
+			"Statuses: done = a workout following this plan has completed working sets on that date; started = a workout following this plan exists but has no completed working sets yet; " +
+			"missed = the date has passed without it; due = today and not done yet; upcoming = a future date. A missed day is information only. " +
+			"To follow a scheduled plan, pass its plan_id to log_sets. " + scheduleRule,
+		InputSchema: rangeSchema,
+		Annotations: readOnly("Get schedule"),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ScheduleRangeInput) (*mcp.CallToolResult, ScheduleOut, error) {
+		v, err := service.GetSchedule(ctx, in.From, in.To)
+		return nil, ScheduleOut{Schedule: v}, toolError(err)
 	})
 }

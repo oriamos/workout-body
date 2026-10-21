@@ -8,7 +8,9 @@ retry writes idempotently. It also covers exercise guides (answer "how do I
 do X" from the stored instructions, or say none exist) and videos (uploaded
 through the app/HTTP API, never through MCP; the assistant sees metadata only).
 Prescriptions use `target_sets` for the planned set count; only plan documents
-(`import_plan`/`replace_plan`/`export_plan`) use `sets`.
+(`import_plan`/`replace_plan`/`export_plan`) use `sets`. Plan schedules
+("Mondays and Thursdays", "three times a week") are read with `get_schedule`
+and set with `set_plan_schedule`; a schedule never creates a workout.
 
 Verification status is in [`../README.md`](../README.md). In short: the MCP
 server's tools are tested with the Go MCP SDK client; installing this plugin

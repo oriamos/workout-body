@@ -1,6 +1,7 @@
 package apisrv
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -782,4 +783,114 @@ func (s *Server) dateRange(r *http.Request) (string, string, error) {
 	}
 	to, err := s.optDate(r, "to")
 	return from, to, err
+}
+
+// ---- schedules ------------------------------------------------------------------
+
+var scheduleKeys = map[string]bool{"type": true, "days": true, "times_per_week": true}
+
+// parseSchedule strictly decodes the "schedule" member: null clears, an object
+// must contain only known keys. Issue fields are prefixed with "schedule.".
+func parseSchedule(raw json.RawMessage) (*training.Schedule, error) {
+	if isNull(raw) {
+		return nil, nil
+	}
+	var inner map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &inner); err != nil || inner == nil {
+		return nil, invalidField("schedule", "must be an object or null")
+	}
+	var iss, typed []training.Issue
+	for k := range inner {
+		if !scheduleKeys[k] {
+			iss = append(iss, training.Issue{Field: "schedule." + k, Message: "unknown field"})
+		}
+	}
+	sc := &training.Schedule{}
+	member(inner, "type", &sc.Type, &typed)
+	member(inner, "days", &sc.Days, &typed)
+	member(inner, "times_per_week", &sc.TimesPerWeek, &typed)
+	for _, i := range typed {
+		iss = append(iss, training.Issue{Field: "schedule." + i.Field, Message: i.Message})
+	}
+	if len(iss) > 0 {
+		sortIssues(iss)
+		return nil, invalidIssues(iss)
+	}
+	return sc, nil
+}
+
+func (s *Server) putPlanSchedule(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r, "id")
+	if err != nil {
+		return err
+	}
+	rev, err := requireIfMatch(r)
+	if err != nil {
+		return err
+	}
+	data, err := readBody(w, r)
+	if err != nil {
+		return err
+	}
+	var body map[string]json.RawMessage
+	if err := decodeStrict(data, &body); err != nil {
+		return err
+	}
+	if body == nil {
+		return badRequest("request body must be a JSON object")
+	}
+	var iss []training.Issue
+	for k := range body {
+		if k != "schedule" {
+			iss = append(iss, training.Issue{Field: k, Message: "unknown field"})
+		}
+	}
+	if len(iss) > 0 {
+		sortIssues(iss)
+		return invalidIssues(iss)
+	}
+	raw, ok := body["schedule"]
+	if !ok {
+		return invalidField("schedule", "is required (an object, or null to clear)")
+	}
+	sc, err := parseSchedule(raw)
+	if err != nil {
+		return err
+	}
+	p, err := s.svc.SetPlanSchedule(r.Context(), id, sc, rev)
+	if err != nil {
+		return orNotFound(err, "plan %d does not exist", id)
+	}
+	setETag(w, p.Revision)
+	writeJSON(w, http.StatusOK, p)
+	return nil
+}
+
+func (s *Server) getSchedule(w http.ResponseWriter, r *http.Request) error {
+	from, to, err := s.dateRange(r)
+	if err != nil {
+		return err
+	}
+	v, err := s.svc.GetSchedule(r.Context(), from, to)
+	if err != nil {
+		return err
+	}
+	out := scheduleViewJSON{ScheduleView: v, Unscheduled: []planRef{}}
+	for _, p := range v.Unscheduled {
+		out.Unscheduled = append(out.Unscheduled, planRef{PlanID: p.PlanID, Name: p.Name})
+	}
+	writeJSON(w, http.StatusOK, out)
+	return nil
+}
+
+// scheduleViewJSON renders unscheduled plans without the (meaningless, empty)
+// status the engine's ScheduledPlan carries.
+type scheduleViewJSON struct {
+	training.ScheduleView
+	Unscheduled []planRef `json:"unscheduled_plans"`
+}
+
+type planRef struct {
+	PlanID int64  `json:"plan_id"`
+	Name   string `json:"name"`
 }

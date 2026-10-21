@@ -592,18 +592,19 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 		"set_exercise_group", "list_exercise_groups", "record_feedback", "volume_recommendation",
 		"set_volume_landmarks", "list_volume_landmarks",
 		"get_exercise_guide", "set_exercise_instructions", "list_set_videos", "delete_video",
+		"set_plan_schedule", "get_schedule",
 	}
 	for _, n := range required {
 		if byName[n] == nil {
 			t.Errorf("tool %s is not registered", n)
 		}
 	}
-	for _, n := range []string{"get_workout", "get_session", "list_sessions", "get_plan", "export_plan", "list_exercises", "exercise_stats", "training_summary", "exercise_history", "get_set", "get_exercise_guide", "list_set_videos"} {
+	for _, n := range []string{"get_workout", "get_session", "list_sessions", "get_plan", "export_plan", "list_exercises", "exercise_stats", "training_summary", "exercise_history", "get_set", "get_exercise_guide", "list_set_videos", "get_schedule"} {
 		if tool := byName[n]; tool != nil && !tool.Annotations.ReadOnlyHint {
 			t.Errorf("%s should be read-only", n)
 		}
 	}
-	for _, n := range []string{"delete_set", "delete_session", "delete_plan", "update_set", "replace_plan", "rename_exercise", "remove_exercise_alias", "delete_video"} {
+	for _, n := range []string{"delete_set", "delete_session", "delete_plan", "update_set", "replace_plan", "rename_exercise", "remove_exercise_alias", "delete_video", "set_plan_schedule"} {
 		if tool := byName[n]; tool != nil && (tool.Annotations.ReadOnlyHint || !*tool.Annotations.DestructiveHint) {
 			t.Errorf("%s should be destructive", n)
 		}
@@ -629,6 +630,11 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 	mustContain(t, byName["set_exercise_instructions"].Description, "never invent")
 	mustContain(t, byName["delete_video"].Description, "confirm")
 	mustContain(t, logSets, "target_sets")
+	if !byName["set_plan_schedule"].Annotations.IdempotentHint {
+		t.Error("set_plan_schedule should be idempotent")
+	}
+	mustContain(t, byName["set_plan_schedule"].Description, "NEVER creates or changes a workout", "mon..sun", "configured timezone", "Monday", "on_conflict='replace'", "clear")
+	mustContain(t, byName["get_schedule"].Description, "never creates a workout", "done =", "started =", "missed =", "due =", "upcoming =", "Monday-Sunday")
 
 	schema := schemaMap(t, byName["log_sets"].InputSchema)
 	setProps := schema["properties"].(map[string]any)["sets"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)

@@ -432,8 +432,9 @@ paths:
       summary: Import a plan document
       description: |
         Plans are matched by name (case-insensitive). With
-        `on_conflict=replace` an existing plan keeps its id and has its notes
-        and exercises replaced; workouts already created from it are never
+        `on_conflict=replace` an existing plan keeps its id and has its notes,
+        exercises and schedule replaced (a document without `schedule` clears
+        the plan's schedule); workouts already created from it are never
         changed. `dry_run=true` validates and reports the outcome without
         writing (no ETag; a would-be-created plan has id 0).
         Import is naturally idempotent, so it takes no `Idempotency-Key`:
@@ -496,7 +497,8 @@ paths:
     put:
       tags: [plans]
       operationId: replacePlan
-      summary: Replace a plan's name, notes and exercises
+      summary: Replace a plan's name, notes, exercises and schedule
+      description: A document without `schedule` clears the plan's schedule.
       parameters:
         - $ref: "#/components/parameters/IfMatchRequired"
       requestBody:
@@ -533,6 +535,83 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "412": { $ref: "#/components/responses/PreconditionFailed" }
         "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /plans/{id}/schedule:
+    parameters:
+      - $ref: "#/components/parameters/PlanID"
+    put:
+      tags: [plans]
+      operationId: setPlanSchedule
+      summary: Set or clear a plan's schedule
+      description: |
+        `{"schedule": {...}}` sets it, `{"schedule": null}` clears it. Day
+        names are normalised (e.g. `Monday` -> `mon`), a repeated day is an
+        error, and stored Monday first. A schedule never creates or changes a
+        workout.
+      parameters:
+        - $ref: "#/components/parameters/IfMatchRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [schedule]
+              properties:
+                schedule:
+                  oneOf:
+                    - $ref: "#/components/schemas/Schedule"
+                    - type: "null"
+      responses:
+        "200":
+          description: The plan with its new schedule.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /schedule:
+    get:
+      tags: [plans]
+      operationId: getSchedule
+      summary: What is planned for a range of days, and how it went
+      description: |
+        Lays every scheduled plan over the range (default: the current
+        Monday-Sunday week in the server timezone; with only `from`, 7 days
+        from it). At most 62 days. Read-only: never creates a workout.
+
+        Fixed-day (`weekdays`) plans appear on their days with a status:
+        - `done`: the date's workout follows that plan and has at least one
+          completed non-warm-up set;
+        - `started`: the date's workout follows that plan but has no such set yet;
+        - `missed`: the date has passed without it;
+        - `due`: the date is today and it is not done;
+        - `upcoming`: the date is in the future.
+
+        Frequency (`times_per_week`) plans get one `weekly_targets` entry per
+        Monday-start week overlapping the range: `target`, `completed`
+        (workouts following the plan with completed working sets), `remaining`
+        (never below 0) and the `dates` that counted. Plans without a schedule
+        are listed in `unscheduled_plans`.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: The schedule view.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScheduleView" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "500": { $ref: "#/components/responses/Internal" }
 
   /plans/{id}/export:
@@ -1346,6 +1425,9 @@ components:
         version: { type: integer, const: 1 }
         name: { type: string, maxLength: 100 }
         notes: { type: string, maxLength: 2000 }
+        schedule:
+          $ref: "#/components/schemas/Schedule"
+          description: Optional; omit it for an unscheduled plan (`null` is rejected).
         items:
           type: array
           minItems: 1
@@ -1354,11 +1436,16 @@ components:
 
     Plan:
       type: object
-      required: [id, name, revision, total_sets]
+      required: [id, name, revision, total_sets, schedule]
       properties:
         id: { type: integer }
         name: { type: string }
         notes: { type: string }
+        schedule:
+          description: When the plan is meant to be done; null = unscheduled.
+          oneOf:
+            - $ref: "#/components/schemas/Schedule"
+            - type: "null"
         items:
           type: array
           items: { $ref: "#/components/schemas/Prescription" }
@@ -1534,3 +1621,109 @@ components:
         videos:
           type: array
           items: { $ref: "#/components/schemas/Media" }
+
+    Weekday:
+      type: string
+      enum: [mon, tue, wed, thu, fri, sat, sun]
+
+    Schedule:
+      description: |
+        When a plan is meant to be done, in the server timezone; weeks start on
+        Monday. Either fixed weekdays or a weekly frequency.
+      oneOf:
+        - type: object
+          title: Fixed weekdays
+          additionalProperties: false
+          required: [type, days]
+          properties:
+            type: { type: string, enum: [weekdays] }
+            days:
+              type: array
+              minItems: 1
+              maxItems: 7
+              uniqueItems: true
+              description: Stored lower-case and Monday first. Full names (e.g. `monday`) are accepted on input.
+              items: { $ref: "#/components/schemas/Weekday" }
+        - type: object
+          title: Times per week
+          additionalProperties: false
+          required: [type, times_per_week]
+          properties:
+            type: { type: string, enum: [times_per_week] }
+            times_per_week: { type: integer, minimum: 1, maximum: 7 }
+
+    ScheduledPlan:
+      type: object
+      required: [plan_id, name, status]
+      properties:
+        plan_id: { type: integer }
+        name: { type: string }
+        status:
+          type: string
+          enum: [done, started, missed, due, upcoming]
+          description: See GET /schedule.
+
+    UnscheduledPlan:
+      type: object
+      required: [plan_id, name]
+      properties:
+        plan_id: { type: integer }
+        name: { type: string }
+
+    WorkoutRef:
+      type: object
+      required: [id, plan_id, working_sets, revision]
+      description: The workout that exists on a date, whatever plan it follows.
+      properties:
+        id: { type: integer }
+        plan_id: { type: [integer, "null"] }
+        plan_name: { type: string, description: Omitted when the workout follows no plan. }
+        working_sets: { type: integer, description: Completed non-warm-up sets. }
+        revision: { type: integer }
+
+    ScheduleDay:
+      type: object
+      required: [date, weekday, today, scheduled, workout]
+      properties:
+        date: { type: string }
+        weekday: { $ref: "#/components/schemas/Weekday" }
+        today: { type: boolean }
+        scheduled:
+          type: array
+          items: { $ref: "#/components/schemas/ScheduledPlan" }
+        workout:
+          oneOf:
+            - $ref: "#/components/schemas/WorkoutRef"
+            - type: "null"
+
+    WeeklyTarget:
+      type: object
+      required: [week_start, plan_id, name, target, completed, remaining, dates]
+      properties:
+        week_start: { type: string, description: Monday of the week. }
+        plan_id: { type: integer }
+        name: { type: string }
+        target: { type: integer }
+        completed: { type: integer }
+        remaining: { type: integer, minimum: 0 }
+        dates:
+          type: array
+          items: { type: string }
+
+    ScheduleView:
+      type: object
+      required: [from, to, today, timezone, days, weekly_targets, unscheduled_plans]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        today: { type: string }
+        timezone: { type: string }
+        days:
+          type: array
+          items: { $ref: "#/components/schemas/ScheduleDay" }
+        weekly_targets:
+          type: array
+          items: { $ref: "#/components/schemas/WeeklyTarget" }
+        unscheduled_plans:
+          type: array
+          items: { $ref: "#/components/schemas/UnscheduledPlan" }

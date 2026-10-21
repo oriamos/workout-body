@@ -3,7 +3,7 @@
 <!-- GENERATED from the registered tools by internal/mcpsrv/docs_test.go. Do not edit by hand; run:
      go test ./internal/mcpsrv -run ToolReference -update-docs -->
 
-This server registers 50 tools. Descriptions below are exactly what the model receives.
+This server registers 52 tools. Descriptions below are exactly what the model receives.
 
 Worked examples with real calls and results: [mcp-examples.md](mcp-examples.md). Connection and plugin setup: [plugin-setup.md](plugin-setup.md).
 
@@ -32,6 +32,7 @@ Conventions that apply to every tool:
 | [`export_plan`](#export_plan) | read-only |
 | [`get_exercise_guide`](#get_exercise_guide) | read-only |
 | [`get_plan`](#get_plan) | read-only |
+| [`get_schedule`](#get_schedule) | read-only |
 | [`get_session`](#get_session) | read-only |
 | [`get_set`](#get_set) | read-only |
 | [`get_workout`](#get_workout) | read-only |
@@ -58,6 +59,7 @@ Conventions that apply to every tool:
 | [`set_exercise_instructions`](#set_exercise_instructions) | destructive write |
 | [`set_exercise_note`](#set_exercise_note) | destructive write |
 | [`set_plan_exercise`](#set_plan_exercise) | destructive write |
+| [`set_plan_schedule`](#set_plan_schedule) | destructive write |
 | [`set_volume_landmarks`](#set_volume_landmarks) | destructive write |
 | [`start_session`](#start_session) | write (idempotent) |
 | [`suggest_load`](#suggest_load) | read-only |
@@ -143,13 +145,14 @@ Change part of one exercise's prescription in a workout: target_sets, rep range,
 
 **Create plan** — write
 
-Create a reusable workout plan: an ordered list of exercises, each with a target set count and optional rep range, target load, RPE and RIR. A plan prescribes what is planned (sets, rep range, optional target load in kg, target RPE 1-10, target RIR 0-10); omitted targets mean 'not prescribed'. Plans never create completed sets. To create from a plan document use import_plan.
+Create a reusable workout plan: an ordered list of exercises, each with target_sets and optional rep range, target load, RPE and RIR, plus an optional schedule. A plan prescribes what is planned (sets, rep range, optional target load in kg, target RPE 1-10, target RIR 0-10); omitted targets mean 'not prescribed'. Plans never create completed sets. A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency; the week starts on Monday. A schedule NEVER creates or changes a workout. To create from a plan document use import_plan.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `items` | array of object | yes | Ordered exercises; order is the order performed. Each exercise at most once. |
 | `name` | string | yes | Name of the plan, e.g. 'Upper A'. |
 | `notes` | string | no | Optional free-text notes about the plan. |
+| `schedule` | object | no | Optional schedule: {type:'weekdays', days:['mon','thu']} or {type:'times_per_week', times_per_week:3}. Omit for an unscheduled plan. |
 
 ## delete_plan
 
@@ -240,11 +243,22 @@ Read how to perform an exercise: the user's stored written instructions (empty s
 
 **Get plan** — read-only
 
-Read one plan with its revision (pass it as expected_revision to replace_plan/delete_plan) and ordered exercises with target sets, rep ranges, target load (kg), RPE and RIR.
+Read one plan with its revision (pass it as expected_revision to replace_plan/delete_plan/set_plan_schedule), its schedule (null = unscheduled) and ordered exercises with target sets, rep ranges, target load (kg), RPE and RIR.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `plan_id` | integer | yes | Id of the plan. |
+
+## get_schedule
+
+**Get schedule** — read-only
+
+What is planned for a range of local dates (default: the current Monday-Sunday week in the configured timezone). Read-only: never creates a workout. Returns today and timezone; days[] with each date's weekday, the plans scheduled on it by fixed weekdays and their status, and the workout that exists on that date (id, plan, working sets, revision) if any; weekly_targets[] for times_per_week plans per Monday-start week (target, completed = workouts following the plan with completed working sets, remaining, dates); and unscheduled_plans[]. Statuses: done = a workout following this plan has completed working sets on that date; started = a workout following this plan exists but has no completed working sets yet; missed = the date has passed without it; due = today and not done yet; upcoming = a future date. A missed day is information only. To follow a scheduled plan, pass its plan_id to log_sets. A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency; the week starts on Monday. A schedule NEVER creates or changes a workout.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `from` | string | no | Inclusive first local date YYYY-MM-DD. Omit both from and to for the current Monday-Sunday week; with only from, the 7 days starting there. |
+| `to` | string | no | Inclusive last local date YYYY-MM-DD; requires from. At most 62 days. |
 
 ## get_session
 
@@ -280,7 +294,7 @@ Read the workout for a local date without creating anything. Returns exists=fals
 
 **Import plan** — destructive write
 
-Validate a plan document and store it atomically. Plans are matched by name (case-insensitive): a new name creates a plan; an existing name is rejected unless on_conflict='replace', which replaces that plan's notes and exercises in place (keeping its id). Workouts already created from the plan are never changed. Every problem is reported with its JSON path (e.g. items[2].sets) and nothing is written. Use dry_run=true to preview. new_exercises lists exercise names that would be/were created, with similar existing names. A plan prescribes what is planned (sets, rep range, optional target load in kg, target RPE 1-10, target RIR 0-10); omitted targets mean 'not prescribed'. Plans never create completed sets.
+Validate a plan document and store it atomically. Plans are matched by name (case-insensitive): a new name creates a plan; an existing name is rejected unless on_conflict='replace', which replaces that plan's notes and exercises in place (keeping its id). Workouts already created from the plan are never changed. The document may carry a schedule; replacing a plan with a document that lacks schedule clears the plan's schedule. Every problem is reported with its JSON path (e.g. items[2].sets) and nothing is written. Use dry_run=true to preview. new_exercises lists exercise names that would be/were created, with similar existing names. A plan prescribes what is planned (sets, rep range, optional target load in kg, target RPE 1-10, target RIR 0-10); omitted targets mean 'not prescribed'. Plans never create completed sets.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -316,7 +330,7 @@ _No parameters._
 
 **List plans** — read-only
 
-List every saved plan with its revision and total planned set count.
+List every saved plan with its revision, schedule (null = unscheduled) and total planned set count.
 
 _No parameters._
 
@@ -541,6 +555,18 @@ Add an exercise to a saved plan, or replace its prescription. Editing a plan nev
 | `target_rpe` | number | no | Prescribed RPE 1-10. Omit if not prescribed. |
 | `target_sets` | integer | yes | Planned number of sets, 1-20. |
 | `target_weight_kg` | number | no | Prescribed load in kilograms, 0-2000. Omit if not prescribed. |
+
+## set_plan_schedule
+
+**Set plan schedule** — destructive write
+
+Set or replace a plan's schedule; pass schedule null (or omit it) to clear it. Returns the updated plan with its new revision. A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency; the week starts on Monday. A schedule NEVER creates or changes a workout. Use explicit days or a count exactly as the user stated them ('Mondays and Thursdays' -> days ['mon','thu']; 'three times a week' -> times_per_week 3). Replacing a plan via import_plan(on_conflict='replace') with a document lacking schedule clears it. expected_revision (optional) makes the write fail with a conflict if the target changed since you read it; on conflict re-read and retry.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `expected_revision` | integer | no | The plan's revision from your last read; rejected with a conflict if it changed since. |
+| `plan_id` | integer | yes | Id of the plan. |
+| `schedule` | object | no | The new schedule. null or omitted clears it (the plan becomes unscheduled). |
 
 ## set_volume_landmarks
 

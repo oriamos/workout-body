@@ -69,7 +69,7 @@ and are what this project changed.
 |---|---|
 | Custom UI | Not built, by design in this phase. |
 | OAuth, multi-user, RBAC | Not needed for the single-user case. |
-| Rotating A/B/C vs weekday scheduling | Undecided; a plan is just a named routine. |
+| Automatic workout creation or reminders from a schedule | By design a schedule is plan data plus a read-only view; nothing is created or sent on its own. |
 | Workout-level delete over HTTP/MCP, resumable uploads, webhooks | Not provided. |
 
 **Uncertain pending runtime verification**

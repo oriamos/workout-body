@@ -55,6 +55,8 @@ There is exactly one workout per date.
 | `GET` / `PATCH` / `DELETE /sets/{id}` | Read, correct, delete one set |
 | `GET` / `POST /plans`, `POST /plans/import` | List, create, import plans |
 | `GET` / `PUT` / `DELETE /plans/{id}`, `GET /plans/{id}/export` | Read, replace, delete, export |
+| `PUT /plans/{id}/schedule` | Set or clear (`null`) a plan's fixed schedule; `If-Match` required |
+| `GET /schedule?from&to` | Schedule view: what is due on which day, what was done, weekly tallies |
 | `GET /exercises`, `GET` / `PATCH /exercises/{ref}` | Exercises (with aliases); rename |
 | `POST /exercises/{ref}/aliases`, `DELETE …/aliases/{alias}` | Manage aliases |
 | `GET /exercises/{ref}/history`, `…/stats` | Progression ([analytics.md](analytics.md)) |
@@ -140,6 +142,28 @@ nothing. A failed import reports every issue with its JSON path and leaves no
 partial plan. `GET /plans/{id}/export` returns the same format, so
 `export → import(replace)` is idempotent. `PUT /plans/{id}` replaces an existing
 plan in place (guarded by `If-Match`).
+
+## Schedule
+
+A plan may carry a fixed schedule (format and rules:
+[plan-format.md](plan-format.md#schedule-optional)):
+
+```json
+{ "type": "weekdays", "days": ["mon", "thu"] }
+{ "type": "times_per_week", "times_per_week": 3 }
+```
+
+It is part of the plan (returned as `schedule`, `null` when unscheduled), travels
+in plan documents, and is changed with `PUT /plans/{id}/schedule`
+(`{"schedule": {...}}` or `{"schedule": null}`, `If-Match` required).
+
+`GET /schedule?from&to` (default: the current Monday–Sunday week in the server
+timezone, at most 62 days) returns `days[]` with each date's `weekday`, whether
+it is `today`, the `workout` stored on it (if any), and the weekday-scheduled
+plans with a status — `done`, `started`, `missed`, `due` or `upcoming` (defined
+in [engine.md](engine.md#plan-schedules)) — plus `weekly_targets[]` for
+frequency plans (`target`, `completed`, `remaining`, `dates`) and
+`unscheduled_plans[]`. It never creates a workout.
 
 ## Not provided
 

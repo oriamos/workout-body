@@ -190,7 +190,7 @@ func TestContractSpecIsWellFormed(t *testing.T) {
 	schemas := asMap(asMap(spec["components"])["schemas"])
 	for _, name := range []string{"SetInput", "Set", "Workout", "ProgressItem", "Prescription", "BatchResult",
 		"PlanDocument", "Plan", "Exercise", "ExerciseStats", "TrainingSummary", "Error", "SetType", "SetPatch",
-		"Media", "ExerciseGuide"} {
+		"Media", "ExerciseGuide", "Schedule", "ScheduleView", "ScheduleDay", "ScheduledPlan", "WorkoutRef", "WeeklyTarget"} {
 		if schemas[name] == nil {
 			t.Errorf("components.schemas.%s is missing", name)
 		}

@@ -37,7 +37,7 @@ completed sets, the second corrected to 7 reps, and squats **planned** as 3×4 a
 values; the engine validates and stores them. See
 [docs/mcp-examples.md](docs/mcp-examples.md).
 
-Also: import/export plans as JSON, read planned-vs-completed progress, look at
+Also: give a plan a fixed schedule (fixed weekdays or N times a week) and see what is due this week, import/export plans as JSON, read planned-vs-completed progress, look at
 exercise history and progression, attach a video to a set, and keep written
 instructions plus how-to videos per exercise.
 

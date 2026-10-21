@@ -128,7 +128,7 @@ const (
 type ScheduledPlan struct {
 	PlanID int64  `json:"plan_id"`
 	Name   string `json:"name"`
-	Status string `json:"status"`
+	Status string `json:"status,omitempty"` // empty for unscheduled plans
 }
 
 // WorkoutRef points at the workout that exists on a date, whatever plan it follows.

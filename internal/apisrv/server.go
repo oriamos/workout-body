@@ -79,6 +79,8 @@ func (s *Server) register() {
 	s.handle("PUT", "/plans/{id}", s.replacePlan)
 	s.handle("DELETE", "/plans/{id}", s.deletePlan)
 	s.handle("GET", "/plans/{id}/export", s.exportPlan)
+	s.handle("PUT", "/plans/{id}/schedule", s.putPlanSchedule)
+	s.handle("GET", "/schedule", s.getSchedule)
 
 	s.handle("GET", "/exercises", s.listExercises)
 	s.handle("GET", "/exercises/{ref}", s.getExercise)

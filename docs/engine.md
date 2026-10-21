@@ -146,6 +146,34 @@ guarded with it. Workouts started from a plan keep their own copy of the
 prescription and a snapshot of the plan name, so renaming, replacing or deleting
 the plan never changes a past workout.
 
+## Plan schedules
+
+A plan may carry one optional schedule: fixed `weekdays` (`mon`…`sun`) or a
+`times_per_week` frequency (1–7); see [plan-format.md](plan-format.md#schedule-optional).
+It is stored on the plan (three columns), included in plan export/import, and
+changed with a revision-guarded setter (`SetPlanSchedule`) that bumps the plan's
+revision. The weekday of a date is computed in the configured timezone, never in
+UTC, and weeks start on Monday.
+
+`GetSchedule(from, to)` is a read-only view (default: the current Monday–Sunday
+week; at most 62 days). For each date it lists the weekday-scheduled plans with
+a status:
+
+| Status | Meaning |
+|---|---|
+| `done` | A workout on that date follows this plan and has at least one completed (non-warm-up) set |
+| `started` | A workout follows the plan but has no completed working set yet (prescriptions or warm-ups only) |
+| `missed` | The date has passed without it |
+| `due` | Today, not done yet |
+| `upcoming` | A future date |
+
+For `times_per_week` plans it reports per week: target, completed (distinct
+dates with a completed workout following the plan), remaining and the dates. It
+also lists unscheduled plans so a UI can still offer them. A workout done on a
+scheduled day under a *different* plan is shown in the day's `workout`, and the
+scheduled plan stays `missed`/`due`. A schedule never creates, edits or deletes a
+workout, and changing it never touches existing workouts.
+
 ## Persistence
 
 * SQLite via `modernc.org/sqlite` (pure Go, no CGO).

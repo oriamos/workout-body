@@ -88,6 +88,29 @@ log is worse than a missing one.
     `log_sets` call containing all its sets (in performed order) and
     prescriptions. It is atomic: all or nothing.
 
+## Schedules
+
+- **"What's on today / this week?"** Call `get_schedule` (default: the
+  current Monday-Sunday week in the user's timezone) and answer from it:
+  plans scheduled per day with status (done, started, missed, due,
+  upcoming), weekly targets for "N times a week" plans (completed /
+  remaining), and unscheduled plans. Never guess the schedule from memory.
+- **Following today's plan.** When the user trains the plan that is due,
+  pass its `plan_id` to `log_sets` (on the first write of the day) so the
+  workout follows it and progress/status update.
+- **Setting a schedule.** "Upper A on Mondays and Thursdays" ->
+  `set_plan_schedule {"plan_id": ..., "schedule": {"type": "weekdays",
+  "days": ["mon", "thu"]}}`; "three times a week" -> `{"type":
+  "times_per_week", "times_per_week": 3}`; "unschedule it" -> `"schedule":
+  null`. Use explicit days/counts. Ask one brief question only if the days
+  are genuinely ambiguous ("a couple of days a week": which days, or a count?).
+- **A schedule never starts a workout.** A missed day is just information:
+  do not log anything for it unless the user says they trained. Do not
+  create workouts to "fill" the schedule.
+- Replacing a plan with `import_plan` (`on_conflict: "replace"`) using a
+  document without `schedule` clears the plan's schedule; keep the
+  `schedule` field when re-importing an exported plan.
+
 ## Exercise guides and videos
 
 - **"How do I do X?"** Call `get_exercise_guide` with the exercise name,
@@ -197,6 +220,11 @@ Reply: "Corrected bench press set 2 to 60 kg x 7." Nothing else changes.
   answer from `instructions`, or say none is stored.
 - "I filmed my last squat set" -> explain the upload goes through the app;
   afterwards `list_set_videos` with that set's id shows it.
+- "What do I have this week?" -> `get_schedule {}`; e.g. "Monday: Upper A
+  done. Today: Lower A due. Thursday: Upper A upcoming. Full Body: 1 of 2
+  this week."
+- "Doing today's Lower A: squat 120x5" -> `log_sets {"plan_id": <Lower A id>,
+  "sets": [{"exercise": "squat", "weight_kg": 120, "reps": 5}], ...}`.
 - A plan document from the user -> `import_plan` with `dry_run: true` first,
   report what would be created, then import for real.
 

@@ -35,7 +35,10 @@ against the real service on a temporary SQLite database:
   exercise videos, video cleanup when a set is deleted, and the error text
   when media storage is disabled. Videos in tests are attached directly
   through the service with synthetic bytes; the HTTP upload endpoints belong
-  to the API server and are not exercised by these tests.
+  to the API server and are not exercised by these tests;
+- plan schedules: `create_plan`/`import_plan` (incl. dry run)/`export_plan`
+  carrying a schedule, `set_plan_schedule` set/clear/stale-revision/invalid
+  days, and `get_schedule` statuses, weekly tallies and default week.
 
 ### Checked against the documentation, but not run
 
