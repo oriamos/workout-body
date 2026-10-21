@@ -9,6 +9,7 @@ count.
 |---|---|
 | Completed working set | Any set whose `set_type` is not `warmup` (so `working`, `backoff`, `drop`, `failure`). |
 | Warm-ups | Counted separately (`warmup_sets`) and excluded from working sets, volume, bests, SI totals, weekly/muscle volume and load suggestions. |
+| Load suggestions | `suggest_load` uses the newest *complete working* set: warm-ups, technique sets and sets missing weight or reps are skipped. |
 | Missing values | A working set without weight or reps still counts as a set, but adds nothing to volume or 1RM; it is reported in `unrecorded_sets` so the gap is visible. |
 | Dates | Workout local dates in the configured timezone. Ranges are inclusive. |
 
@@ -31,7 +32,7 @@ count.
 |---|---|---|---|
 | Exercise history | `exercise_history` | `GET /exercises/{ref}/history` | Newest-first sets with all fields, plus the personal record (best estimated 1RM, excluding warm-ups and technique sets). |
 | Exercise stats | `exercise_stats` | `GET /exercises/{ref}/stats?from&to` | Per-date points (working/warm-up sets, reps, volume, top weight, best e1RM), totals, and bests (max weight, best e1RM, max reps) with the set that produced each. |
-| Training summary | `training_summary` | `GET /stats/summary?from&to` | Workouts, working/warm-up sets, volume, unrecorded sets; breakdowns by exercise, muscle group and week. Default range: the last 28 days ending today. |
+| Training summary | `training_summary` | `GET /stats/summary?from&to` | Workouts (dates with at least one completed working set; a warm-up-only day is not counted, so per-week totals add up), working/warm-up sets, volume, unrecorded sets; breakdowns by exercise, muscle group and week. Default range: the last 28 days ending today. |
 | Planned vs completed | `get_workout` | `GET /workouts/{date}` | `progress[]` per exercise: `target_sets`, `done_sets`, `warmup_sets`, targets. |
 
 ## Limitations

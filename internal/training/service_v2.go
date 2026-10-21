@@ -370,7 +370,7 @@ func (s *Service) ExerciseStats(ctx context.Context, ref, from, to string) (Exer
 		out.WorkingSets++
 		if r.Reps != nil {
 			pt.TotalReps += *r.Reps
-			if out.MaxRepsAtTop == nil || float64(*r.Reps) > out.MaxRepsAtTop.Value {
+			if r.Technique == "" && (out.MaxRepsAtTop == nil || float64(*r.Reps) > out.MaxRepsAtTop.Value) {
 				out.MaxRepsAtTop = &ExerciseBest{Value: float64(*r.Reps), Date: r.Date, SetID: r.SetID}
 			}
 		}
@@ -435,17 +435,17 @@ func (s *Service) TrainingSummary(ctx context.Context, from, to string) (Trainin
 		return TrainingSummary{}, err
 	}
 	out := TrainingSummary{From: from, To: to, ByExercise: []ExerciseSummary{}, ByMuscle: []GroupSummary{}, ByWeek: []WeekSummary{}}
-	workouts := map[string]bool{}
+	workouts := map[string]bool{} // dates with at least one completed working set
 	exercises := map[int64]*ExerciseSummary{}
 	groups := map[string]*GroupSummary{}
 	weeks := map[string]*WeekSummary{}
 	weekWorkouts := map[string]map[string]bool{}
 	for _, r := range records {
-		workouts[r.Date] = true
 		if !r.working() {
 			out.WarmupSets++
 			continue
 		}
+		workouts[r.Date] = true
 		wk := weekStart(r.Date)
 		w := weeks[wk]
 		if w == nil {

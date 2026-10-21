@@ -33,6 +33,11 @@ automatically. **Back up first** ([backup-restore.md](backup-restore.md)). It:
   are deleted. Upstream allowed several sessions per date; this version does
   not.
 * Adds a `UNIQUE` index on `sessions(date)`.
+* **Normalizes legacy exercise names** (lower case, runs of whitespace collapsed,
+  as new input is) in sets, plans, prescriptions, the muscle-group catalogue and
+  notes, so a name stored with a doubled space stays reachable. If two spellings
+  collide on a unique key (the same exercise twice in one workout's
+  prescription), the already-normalized row wins.
 * Rebuilds `sets` with nullable `weight_kg`/`reps`/`rpe`, new `rir`, `set_type`
   (existing sets become `working`), `notes`, `revision`, `exercise_id`, and
   `AUTOINCREMENT` ids. Existing ids and values are preserved.

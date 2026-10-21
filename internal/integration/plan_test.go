@@ -168,7 +168,7 @@ func TestPlanImportValidationReportsEverything(t *testing.T) {
 	fields := requireFields(t, err,
 		"author",                    // unknown top-level field
 		"items[0].sets",             // bad type
-		"items[1].rep_min",             // inverted rep range
+		"items[1].rep_min",          // inverted rep range
 		"items[1].tempo",            // unknown item field
 		"items[2].exercise",         // duplicate after normalization
 		"items[3].rep_min",          // second bad type: all type errors are reported

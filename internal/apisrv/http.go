@@ -88,12 +88,10 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		ae = &apiError{status: http.StatusBadRequest, Code: codeValidation, Message: err.Error(), Issues: training.IssuesOf(err)}
 	case errors.Is(err, training.ErrNotFound):
 		ae = &apiError{status: http.StatusNotFound, Code: codeNotFound, Message: err.Error()}
+	case errors.Is(err, training.ErrStale):
+		ae = &apiError{status: http.StatusPreconditionFailed, Code: codePreconditionFailed, Message: err.Error()}
 	case errors.Is(err, training.ErrConflict):
-		if r.Header.Get("If-Match") != "" {
-			ae = &apiError{status: http.StatusPreconditionFailed, Code: codePreconditionFailed, Message: err.Error()}
-		} else {
-			ae = &apiError{status: http.StatusConflict, Code: codeConflict, Message: err.Error()}
-		}
+		ae = &apiError{status: http.StatusConflict, Code: codeConflict, Message: err.Error()}
 	case errors.Is(err, training.ErrAmbiguous):
 		ae = &apiError{status: http.StatusConflict, Code: codeConflict, Message: err.Error()}
 	default:

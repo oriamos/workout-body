@@ -43,6 +43,20 @@ UPDATE sessions SET
 WHERE plan_name = '' AND plan_id IS NULL AND id IN (
  SELECT m.keep_id FROM dup_map m JOIN sessions d ON d.id = m.old_id WHERE d.plan_name <> '');
 
+-- ---- 1b. normalise legacy exercise names ---------------------------------
+-- New input is lower-cased with runs of whitespace collapsed. Upstream only
+-- lower-cased and trimmed, so a name typed with a doubled space would otherwise
+-- stay unreachable by name. Where two spellings collide on a unique key the
+-- already-normalised row wins and the duplicate is dropped.
+UPDATE sets SET exercise = lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))) WHERE exercise <> lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));
+UPDATE plan_items SET exercise = lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))) WHERE exercise <> lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));
+UPDATE OR IGNORE session_items SET exercise = lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))) WHERE exercise <> lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));
+DELETE FROM session_items WHERE exercise <> lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));
+UPDATE OR IGNORE exercise_groups SET exercise = lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))) WHERE exercise <> lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));
+DELETE FROM exercise_groups WHERE exercise <> lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));
+UPDATE OR IGNORE exercise_notes SET exercise = lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '))) WHERE exercise <> lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));
+DELETE FROM exercise_notes WHERE exercise <> lower(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(exercise, char(9), ' '), char(10), ' '), char(13), ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' '), '  ', ' ')));
+
 -- ---- 3. exercise identity -------------------------------------------------
 CREATE TABLE exercises (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,8 +85,11 @@ CREATE TABLE sets_v2 (
  position INTEGER NOT NULL,
  exercise TEXT NOT NULL,
  exercise_id INTEGER NOT NULL REFERENCES exercises(id),
- weight_kg REAL CHECK (weight_kg IS NULL OR (weight_kg >= 0 AND weight_kg <= 2000)),
- reps INTEGER CHECK (reps IS NULL OR (reps >= 1 AND reps <= 1000)),
+ -- Upper limits (2000 kg, 1000 reps) are enforced by the service for NEW
+ -- input only. Upstream never capped these, so the database must accept any
+ -- legacy row instead of refusing to start.
+ weight_kg REAL CHECK (weight_kg IS NULL OR weight_kg >= 0),
+ reps INTEGER CHECK (reps IS NULL OR reps >= 1),
  rpe REAL CHECK (rpe IS NULL OR (rpe >= 1 AND rpe <= 10)),
  rir REAL CHECK (rir IS NULL OR (rir >= 0 AND rir <= 10)),
  set_type TEXT NOT NULL DEFAULT 'working' CHECK (set_type IN ('warmup','working','backoff','drop','failure')),

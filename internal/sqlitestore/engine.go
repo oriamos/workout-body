@@ -270,6 +270,21 @@ func (s *Store) RenameExercise(ctx context.Context, exerciseID int64, newName st
 			return err
 		}
 	}
+	// Everything whose displayed exercise name is about to change is a change
+	// to that record, so concurrent editors holding the old revision are told.
+	for _, q := range []string{
+		`UPDATE sessions SET revision=revision+1 WHERE id IN (SELECT session_id FROM sets WHERE exercise_id=?)`,
+		`UPDATE sets SET revision=revision+1 WHERE exercise_id=?`,
+		`UPDATE plans SET revision=revision+1 WHERE id IN (SELECT plan_id FROM plan_items WHERE exercise=?)`,
+	} {
+		arg := any(exerciseID)
+		if strings.Contains(q, "plan_items") {
+			arg = old
+		}
+		if _, err = tx.ExecContext(ctx, q, arg); err != nil {
+			return err
+		}
+	}
 	for _, table := range []string{"sets", "plan_items", "session_items", "exercise_groups", "exercise_notes"} {
 		if _, err = tx.ExecContext(ctx, `UPDATE `+table+` SET exercise=? WHERE exercise=?`, newName, old); err != nil {
 			return fmt.Errorf("rename in %s: %w", table, err)
@@ -468,7 +483,7 @@ func (s *Store) UpdateSet(ctx context.Context, id int64, p training.SetPatch) (t
 		return training.Set{}, 0, err
 	}
 	if p.ExpectedRevision != nil && *p.ExpectedRevision != set.Revision {
-		return training.Set{}, 0, fmt.Errorf("%w: set %d is at revision %d, not %d; re-read it and retry", training.ErrConflict, id, set.Revision, *p.ExpectedRevision)
+		return training.Set{}, 0, fmt.Errorf("%w: set %d is at revision %d, not %d; re-read it and retry", training.ErrStale, id, set.Revision, *p.ExpectedRevision)
 	}
 	if p.Exercise != nil || p.ExerciseID != nil {
 		var eid int64
@@ -557,7 +572,7 @@ func (s *Store) DeleteSet(ctx context.Context, id int64, expected *int) (int64, 
 		return 0, 0, 0, err
 	}
 	if expected != nil && *expected != rev {
-		return 0, 0, 0, fmt.Errorf("%w: set %d is at revision %d, not %d; re-read it and retry", training.ErrConflict, id, rev, *expected)
+		return 0, 0, 0, fmt.Errorf("%w: set %d is at revision %d, not %d; re-read it and retry", training.ErrStale, id, rev, *expected)
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM sets WHERE id=?`, id); err != nil {
 		return 0, 0, 0, err
@@ -657,7 +672,7 @@ func (s *Store) LogBatch(ctx context.Context, in training.BatchInput) (training.
 		return training.BatchResult{}, err
 	}
 	if in.ExpectedRevision != nil && !created && *in.ExpectedRevision != w.Revision {
-		return training.BatchResult{}, fmt.Errorf("%w: workout %s is at revision %d, not %d; re-read it and retry", training.ErrConflict, in.Date, w.Revision, *in.ExpectedRevision)
+		return training.BatchResult{}, fmt.Errorf("%w: workout %s is at revision %d, not %d; re-read it and retry", training.ErrStale, in.Date, w.Revision, *in.ExpectedRevision)
 	}
 	if in.PlanID > 0 && w.PlanID != in.PlanID {
 		if w.PlanID != 0 {
@@ -700,6 +715,9 @@ ON CONFLICT(session_id,exercise) DO UPDATE SET
 		}
 		stored, err := loadSessionItem(ctx, tx, w.ID, ex.name)
 		if err != nil {
+			return training.BatchResult{}, err
+		}
+		if err = invertedRange(stored); err != nil {
 			return training.BatchResult{}, err
 		}
 		res.Prescriptions = append(res.Prescriptions, stored)
@@ -922,7 +940,12 @@ func (s *Store) ReplacePlan(ctx context.Context, id int64, p training.Plan, expe
 		return training.Plan{}, err
 	}
 	if expected != nil && *expected != rev {
-		return training.Plan{}, fmt.Errorf("%w: plan %d is at revision %d, not %d; re-read it and retry", training.ErrConflict, id, rev, *expected)
+		return training.Plan{}, fmt.Errorf("%w: plan %d is at revision %d, not %d; re-read it and retry", training.ErrStale, id, rev, *expected)
+	}
+	if other, taken, err := planNameTaken(ctx, tx, p.Name, id); err != nil {
+		return training.Plan{}, err
+	} else if taken {
+		return training.Plan{}, errPlanNameTaken(p.Name, other)
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM plan_items WHERE plan_id=?`, id); err != nil {
 		return training.Plan{}, err
@@ -953,7 +976,7 @@ func (s *Store) DeletePlanExpected(ctx context.Context, id int64, expected *int)
 		return err
 	}
 	if expected != nil && *expected != rev {
-		return fmt.Errorf("%w: plan %d is at revision %d, not %d; re-read it and retry", training.ErrConflict, id, rev, *expected)
+		return fmt.Errorf("%w: plan %d is at revision %d, not %d; re-read it and retry", training.ErrStale, id, rev, *expected)
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM plans WHERE id=?`, id); err != nil {
 		return err
@@ -994,4 +1017,32 @@ LEFT JOIN exercise_groups g ON g.exercise=st.exercise WHERE 1=1`
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// invertedRange rejects a rep range whose merged result is backwards, e.g. a
+// stored 8-12 patched with rep_max=6. Each value passes validation alone; only
+// the combination is wrong, so it is checked after merging.
+func invertedRange(it training.PlanItem) error {
+	if it.RepMax > 0 && it.RepMin > it.RepMax {
+		return &training.ValidationError{Issues: []training.Issue{{
+			Field:   "rep_min",
+			Message: fmt.Sprintf("the stored range would become %d-%d (rep_min above rep_max); send rep_min and rep_max together", it.RepMin, it.RepMax),
+		}}}
+	}
+	return nil
+}
+
+// planNameTaken reports whether another plan already uses name
+// (case-insensitively). exceptID excludes the plan being edited.
+func planNameTaken(ctx context.Context, q dbtx, name string, exceptID int64) (int64, bool, error) {
+	var id int64
+	err := q.QueryRowContext(ctx, `SELECT id FROM plans WHERE lower(name)=lower(?) AND id<>? ORDER BY id LIMIT 1`, name, exceptID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	return id, err == nil, err
+}
+
+func errPlanNameTaken(name string, id int64) error {
+	return fmt.Errorf("%w: a plan named %q already exists (id %d); choose another name", training.ErrConflict, name, id)
 }

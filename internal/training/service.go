@@ -583,10 +583,13 @@ func (s *Service) SuggestLoad(ctx context.Context, exercise string) (LoadSuggest
 	}
 	// Sets carrying an intensity technique are not comparable to straight sets,
 	// so they never drive the advice.
+	// Warm-ups and sets missing weight or reps say nothing about the working
+	// load either, so the newest complete working set is used.
 	var last *ExerciseSet
 	for i := range history.Sets {
-		if history.Sets[i].Technique == "" {
-			last = &history.Sets[i]
+		h := &history.Sets[i]
+		if h.Technique == "" && h.SetType != SetTypeWarmup && h.WeightKG != nil && h.Reps != nil {
+			last = h
 			break
 		}
 	}
@@ -856,6 +859,15 @@ func (s *Service) AddSet(ctx context.Context, in AddSetInput) (Set, float64, err
 	}
 	if err := issues(normalizeSet(&in, "")); err != nil {
 		return Set{}, 0, err
+	}
+	// A workout opened for planning on a future date cannot receive performed
+	// sets, whichever path is used to add them.
+	w, err := s.store.GetSession(ctx, in.SessionID)
+	if err != nil {
+		return Set{}, 0, err
+	}
+	if w.Date > s.Today() {
+		return Set{}, 0, invalid("session_id", "workout %s is in the future; sets can only be logged for today or earlier (today is %s)", w.Date, s.Today())
 	}
 	if in.Superset == "" && in.Exercise != "" {
 		// Derive the round from the session's plan, so logging a superset set

@@ -183,6 +183,11 @@ func (s *Store) CreatePlan(ctx context.Context, p training.Plan) (training.Plan,
 		return training.Plan{}, err
 	}
 	defer tx.Rollback()
+	if other, taken, err := planNameTaken(ctx, tx, p.Name, 0); err != nil {
+		return training.Plan{}, err
+	} else if taken {
+		return training.Plan{}, errPlanNameTaken(p.Name, other)
+	}
 	id, _, err := insertPlan(ctx, tx, p)
 	if err != nil {
 		return training.Plan{}, err
@@ -223,8 +228,13 @@ func (s *Store) GetPlan(ctx context.Context, id int64) (training.Plan, error) {
 
 // UpdatePlan edits a plan's name and notes, leaving its exercises alone.
 func (s *Store) UpdatePlan(ctx context.Context, id int64, p training.PlanPatch) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	var name, notes string
-	err := s.db.QueryRowContext(ctx, `SELECT name,notes FROM plans WHERE id=?`, id).Scan(&name, &notes)
+	err = tx.QueryRowContext(ctx, `SELECT name,notes FROM plans WHERE id=?`, id).Scan(&name, &notes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return training.ErrNotFound
 	}
@@ -233,12 +243,19 @@ func (s *Store) UpdatePlan(ctx context.Context, id int64, p training.PlanPatch) 
 	}
 	if p.Name != nil {
 		name = *p.Name
+		if other, taken, err := planNameTaken(ctx, tx, name, id); err != nil {
+			return err
+		} else if taken {
+			return errPlanNameTaken(name, other)
+		}
 	}
 	if p.Notes != nil {
 		notes = *p.Notes
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE plans SET name=?,notes=?,revision=revision+1 WHERE id=?`, name, notes, id)
-	return err
+	if _, err = tx.ExecContext(ctx, `UPDATE plans SET name=?,notes=?,revision=revision+1 WHERE id=?`, name, notes, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetPlanItem adds an exercise to a plan, or replaces its prescription if it is
@@ -559,6 +576,9 @@ func (s *Store) PatchSessionItem(ctx context.Context, sessionID int64, exercise 
 	if p.Skipped != nil {
 		skipped = *p.Skipped
 	}
+	if err = invertedRange(it); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, `UPDATE session_items SET target_sets=?,rep_min=?,rep_max=?,target_rpe=?,target_weight_kg=?,target_rir=?,skipped=? WHERE session_id=? AND exercise=?`,
 		it.TargetSets, it.RepMin, it.RepMax, it.TargetRPE, nf(it.TargetWeightKG), nf(it.TargetRIR), skipped, sessionID, exercise); err != nil {
 		return err
@@ -580,6 +600,13 @@ func (s *Store) SwapSessionItem(ctx context.Context, sessionID int64, from, to s
 	ex, err := resolveExercise(ctx, tx, 0, to)
 	if err != nil {
 		return err
+	}
+	var already int
+	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM session_items WHERE session_id=? AND exercise=? AND exercise<>?`, sessionID, ex.name, from).Scan(&already); err != nil {
+		return err
+	}
+	if already > 0 {
+		return fmt.Errorf("%w: %q is already prescribed in this workout; adjust that prescription or remove one of them first", training.ErrConflict, ex.name)
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE session_items SET exercise=? WHERE session_id=? AND exercise=?`, ex.name, sessionID, from)
 	if err != nil {
@@ -638,7 +665,7 @@ func checkWorkoutRevision(ctx context.Context, q dbtx, sessionID int64, expected
 		return err
 	}
 	if expected != nil && *expected != rev {
-		return fmt.Errorf("%w: workout is at revision %d, not %d; re-read it and retry", training.ErrConflict, rev, *expected)
+		return fmt.Errorf("%w: workout is at revision %d, not %d; re-read it and retry", training.ErrStale, rev, *expected)
 	}
 	return nil
 }

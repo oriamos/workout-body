@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/fullfran/training-mcp/internal/training"
 )
@@ -31,7 +32,10 @@ func TestPutOpenDelete(t *testing.T) {
 	if string(b) != "hello video" {
 		t.Fatalf("got %q", b)
 	}
-	keys, _ := fs.Keys(ctx)
+	if keys, _ := fs.StaleKeys(ctx, time.Hour); len(keys) != 0 {
+		t.Fatalf("a file written just now must not be a gc candidate: %v", keys)
+	}
+	keys, _ := fs.StaleKeys(ctx, 0)
 	if len(keys) != 1 || keys[0] != key {
 		t.Fatalf("keys: %v", keys)
 	}
@@ -55,7 +59,7 @@ func TestSizeLimitBoundary(t *testing.T) {
 	if _, _, _, err := fs.Put(ctx, bytes.NewReader(make([]byte, 11)), ".mp4", 10); !errors.Is(err, training.ErrTooLarge) {
 		t.Fatalf("one byte over must be ErrTooLarge, got %v", err)
 	}
-	keys, _ := fs.Keys(ctx)
+	keys, _ := fs.StaleKeys(ctx, 0)
 	if len(keys) != 1 {
 		t.Fatalf("a rejected upload must leave no file: %v", keys)
 	}
@@ -81,5 +85,29 @@ func TestRejectsUnknownExtension(t *testing.T) {
 	fs, _ := New(t.TempDir())
 	if _, _, _, err := fs.Put(context.Background(), bytes.NewReader([]byte("x")), ".sh", 10); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestStaleKeysClearsOldTempFilesOnly(t *testing.T) {
+	fs, _ := New(t.TempDir())
+	old := filepath.Join(fs.dir, "tmp", "upload-old")
+	young := filepath.Join(fs.dir, "tmp", "upload-young")
+	for _, p := range []string{old, young} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past := time.Now().Add(-3 * time.Hour)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.StaleKeys(context.Background(), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatal("an abandoned upload older than the grace period must be removed")
+	}
+	if _, err := os.Stat(young); err != nil {
+		t.Fatal("a recent temp file may belong to an upload in progress and must stay")
 	}
 }

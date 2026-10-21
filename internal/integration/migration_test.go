@@ -2,6 +2,7 @@ package integration
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -211,5 +212,73 @@ func TestSnapshotBackup(t *testing.T) {
 	restored.log(batch("2026-03-09", set("bench press", 60, 6)))
 	if len(restored.workout("2026-03-09").Sets) != 3 || len(e.workout("2026-03-09").Sets) != 2 {
 		t.Fatal("snapshot is not independent of the source")
+	}
+}
+
+// Upstream never capped weight or reps, so rows it accepted must still migrate.
+func TestMigrationAcceptsLegacyValuesBeyondNewServiceLimits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	db := buildV9(t, path)
+	const ts = `'2026-01-05 10:00:00'`
+	exec(t, db,
+		`INSERT INTO sessions(id,date,started_at) VALUES (1,'2026-01-05',`+ts+`)`,
+		`INSERT INTO sets(id,session_id,position,exercise,weight_kg,reps,rpe,si,created_at,updated_at) VALUES
+		 (1,1,1,'leg press',2200,12,8,1.0,`+ts+`,`+ts+`),
+		 (2,1,2,'plank',40,1500,6,0.6,`+ts+`,`+ts+`)`)
+	db.Close()
+
+	e := openEnv(t, path)
+	w, err := e.svc.GetWorkout(ctx(), "2026-01-05")
+	if err != nil {
+		t.Fatalf("the server must start on legacy data: %v", err)
+	}
+	if len(w.Sets) != 2 || *w.Sets[0].WeightKG != 2200 || *w.Sets[1].Reps != 1500 {
+		t.Fatalf("legacy values must be preserved exactly: %+v", w.Sets)
+	}
+	// New input is still held to the service limits.
+	_, err = e.svc.LogSets(ctx(), batch("2026-01-05", set("leg press", 2200, 12)))
+	if !errors.Is(err, training.ErrValidation) {
+		t.Fatalf("new input above the limit must be rejected, got %v", err)
+	}
+}
+
+// Upstream only lower-cased and trimmed names, so "bench  press" (two spaces)
+// could exist. The migration normalises it so it stays reachable by name.
+func TestMigrationNormalisesLegacyExerciseNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	db := buildV9(t, path)
+	const ts = `'2026-01-05 10:00:00'`
+	exec(t, db,
+		`INSERT INTO plans(id,name,notes,created_at) VALUES (1,'P','',`+ts+`)`,
+		`INSERT INTO plan_items(plan_id,position,exercise,target_sets) VALUES (1,1,'bench   press',3)`,
+		`INSERT INTO sessions(id,date,started_at) VALUES (1,'2026-01-05',`+ts+`)`,
+		`INSERT INTO session_items(session_id,position,exercise,target_sets) VALUES (1,1,'bench  press',3),(1,2,'bench press',4)`,
+		`INSERT INTO sets(id,session_id,position,exercise,weight_kg,reps,rpe,si,created_at,updated_at) VALUES
+		 (1,1,1,'bench  press',60,8,8,1.0,`+ts+`,`+ts+`),(2,1,2,'bench press',60,8,8,1.0,`+ts+`,`+ts+`)`,
+		`INSERT INTO exercise_groups(exercise,muscle_group,updated_at) VALUES ('bench  press','pecho',`+ts+`)`)
+	db.Close()
+
+	e := openEnv(t, path)
+	exs, err := e.svc.Exercises(ctx())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exs) != 1 || exs[0].Name != "bench press" || exs[0].SetCount != 2 || exs[0].MuscleGroup != "pecho" {
+		t.Fatalf("the two spellings must collapse into one exercise with its history and group: %+v", exs)
+	}
+	st, err := e.svc.ExerciseStats(ctx(), "bench press", "", "")
+	if err != nil || st.WorkingSets != 2 {
+		t.Fatalf("history must be reachable by the normalised name: %+v %v", st, err)
+	}
+	// Logging the normalised spelling must not create a second exercise.
+	if _, err := e.svc.LogSets(ctx(), batch("2026-01-05", set("bench press", 62.5, 8))); err != nil {
+		t.Fatal(err)
+	}
+	if exs, _ = e.svc.Exercises(ctx()); len(exs) != 1 {
+		t.Fatalf("exercise list fragmented: %+v", exs)
+	}
+	p, err := e.st.GetPlan(ctx(), 1)
+	if err != nil || p.Items[0].Exercise != "bench press" {
+		t.Fatalf("plan item name: %+v %v", p.Items, err)
 	}
 }

@@ -16,6 +16,16 @@ var (
 	ErrAmbiguous = errors.New("ambiguous")
 )
 
+// ErrStale is a conflict caused by a stale revision: the record changed since
+// the caller read it. It matches ErrConflict under errors.Is. Adapters map it
+// to "precondition failed" (HTTP 412), distinct from other conflicts (409).
+var ErrStale error = staleError{}
+
+type staleError struct{}
+
+func (staleError) Error() string        { return "conflict (stale revision)" }
+func (staleError) Is(target error) bool { return target == ErrConflict }
+
 type Session struct {
 	ID      int64   `json:"id"`
 	Date    string  `json:"date"`

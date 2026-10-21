@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fullfran/training-mcp/internal/mediastore"
 	"github.com/fullfran/training-mcp/internal/training"
@@ -95,7 +96,7 @@ func TestVideoFormatIsSniffedNotTrusted(t *testing.T) {
 	if filesIn(t, dir) != 0 {
 		t.Fatal("rejected upload left a file")
 	}
-	webm := append([]byte{0x1A, 0x45, 0xDF, 0xA3}, make([]byte, 64)...)
+	webm := append(append([]byte{0x1A, 0x45, 0xDF, 0xA3}, []byte("....webm")...), make([]byte, 64)...)
 	m, err := e.svc.AttachVideo(ctx(), training.OwnerSet, "1", "x", "", bytes.NewReader(webm))
 	if err != nil || m.ContentType != "video/webm" {
 		t.Fatalf("webm: %v %+v", err, m)
@@ -172,13 +173,26 @@ func TestDeleteMediaAndOrphanPurge(t *testing.T) {
 		t.Fatal("file not removed")
 	}
 	// A file with no row (crash between write and insert) is collected.
-	if err := os.WriteFile(filepath.Join(dir, "deadbeef.mp4"), mp4(10), 0o600); err != nil {
+	orphan := filepath.Join(dir, "deadbeef.mp4")
+	if err := os.WriteFile(orphan, mp4(10), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A fresh orphan may be a file whose row is about to commit: it is spared.
+	young := filepath.Join(dir, "cafebabe.mp4")
+	if err := os.WriteFile(young, mp4(10), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-2 * training.OrphanGrace)
+	if err := os.Chtimes(orphan, past, past); err != nil {
 		t.Fatal(err)
 	}
 	keep, _ := e.svc.AttachVideo(ctx(), training.OwnerSet, "1", "v.mp4", "", bytes.NewReader(mp4(100)))
 	n, err := e.svc.PurgeOrphanBlobs(ctx())
 	if err != nil || n != 1 {
 		t.Fatalf("purged %d, err %v", n, err)
+	}
+	if _, err := os.Stat(young); err != nil {
+		t.Fatal("a file inside the grace period must not be collected")
 	}
 	if _, rc, err := e.svc.OpenMedia(ctx(), keep.ID); err != nil {
 		t.Fatalf("purge removed a referenced file: %v", err)

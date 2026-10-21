@@ -30,8 +30,8 @@ history, and a prescription can never be mistaken for a completed set.
   conversations) all resolve to the same workout.
 * Omitting the date means "today in the configured timezone". An explicit past
   date is allowed for logging and corrections. A **future** date is rejected for
-  performed sets (you cannot have performed them yet) but accepted for
-  prescriptions.
+  performed sets on every path (`log_sets`, and `add_set` into a workout that
+  was opened for a future day) but accepted for prescriptions.
 * There is no start/finish step: the first write creates the workout.
 
 ## Sets
@@ -57,8 +57,12 @@ A set may be partial: only the exercise is required. All numeric fields are
 independently optional so that "bench, 8 reps" can be stored without inventing a
 weight. Units: **kilograms**, RPE on the 1–10 scale, RIR in reps.
 
-Units, ranges and enumerations are enforced twice: in the service (clear,
-field-addressed messages) and by `CHECK` constraints in SQLite.
+Ranges and enumerations are enforced in the service (clear, field-addressed
+messages) and, as a backstop, by `CHECK` constraints in SQLite. The database
+bounds are deliberately looser than the service limits for weight and reps
+(only `weight_kg >= 0` and `reps >= 1`): upstream never capped them, so a
+legacy row above 2000 kg or 1000 reps must still migrate and load. The service
+limits apply to everything written from now on.
 
 ## Prescriptions and progress
 
@@ -103,10 +107,21 @@ workout.
 
 Workouts, sets and plans carry a `revision`. Callers may pass the revision they
 last read (`expected_revision`, or `If-Match` over HTTP). If it no longer
-matches, the write is rejected with a conflict and nothing changes, so a UI edit
-and a conversational edit never silently overwrite each other. The HTTP API
-*requires* the precondition for updating or deleting a set or plan; the MCP
-tools accept it optionally.
+matches, the write is rejected with a **stale-revision** error and nothing
+changes, so a UI edit and a conversational edit never silently overwrite each
+other. The HTTP API *requires* the precondition for updating or deleting a set,
+a plan or a prescription; the MCP tools accept it optionally.
+
+* Stale revisions are `ErrStale` (a kind of `ErrConflict`, HTTP 412). Other
+  conflicts — idempotency-key reuse with another payload, a name collision —
+  are plain `ErrConflict` (HTTP 409), whether or not a precondition was sent.
+* Renaming an exercise changes what the affected sets, workouts and plans
+  display, so it bumps their revisions too.
+* Two deliberate exceptions, both explicit overwrites chosen by the caller:
+  `import` with `on_conflict=replace` (overwrite-by-name; use `dry_run` first)
+  and the granular plan-item tools (`set_plan_exercise` etc.), which bump the
+  plan revision but take no precondition. Use `replace_plan` / `PUT /plans/{id}`
+  when you want the guard.
 
 ## Exercise identity
 
@@ -124,7 +139,9 @@ tools accept it optionally.
 ## Plans
 
 See [plan-format.md](plan-format.md) for the JSON format, import semantics and
-the JSON Schema. Plans have a `revision`; replacing or deleting one can be
+the JSON Schema. Plan names are unique, compared case-insensitively
+(creating, renaming or replacing onto an existing name is a conflict). Plans
+have a `revision`; replacing or deleting one can be
 guarded with it. Workouts started from a plan keep their own copy of the
 prescription and a snapshot of the plan name, so renaming, replacing or deleting
 the plan never changes a past workout.

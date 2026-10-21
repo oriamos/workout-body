@@ -587,24 +587,33 @@ func TestInternalErrorsAreNotLeaked(t *testing.T) {
 	}
 }
 
-// The adapter must not hide engine semantics: a domain conflict without
-// If-Match stays a 409, and is a 412 with it.
+// The adapter must not hide engine semantics: a stale revision is a 412
+// whether or not the header is echoed back, and every other conflict (an
+// idempotency-key clash, a name collision) stays a 409 even when If-Match was
+// sent.
 func TestConflictMapping(t *testing.T) {
 	e := newEnv(t)
 	api := e.api
 	for _, tc := range []struct {
+		name    string
+		err     error
 		ifMatch string
 		status  int
 		code    string
-	}{{"", 409, "conflict"}, {`"1"`, 412, "precondition_failed"}} {
+	}{
+		{"stale", fmt.Errorf("%w: set 1 is at revision 2, not 1", training.ErrStale), `"1"`, 412, "precondition_failed"},
+		{"stale without header", fmt.Errorf("%w: set 1 is at revision 2, not 1", training.ErrStale), "", 412, "precondition_failed"},
+		{"other conflict", fmt.Errorf("%w: key reused", training.ErrConflict), "", 409, "conflict"},
+		{"other conflict with If-Match", fmt.Errorf("%w: plan name taken", training.ErrConflict), `"1"`, 409, "conflict"},
+	} {
 		req, _ := http.NewRequest("GET", "/api/v1/x", nil)
 		if tc.ifMatch != "" {
 			req.Header.Set("If-Match", tc.ifMatch)
 		}
 		rec := httptest.NewRecorder()
-		api.writeError(rec, req, fmt.Errorf("%w: stale", training.ErrConflict))
+		api.writeError(rec, req, tc.err)
 		if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.code) {
-			t.Fatalf("If-Match %q -> %d %s", tc.ifMatch, rec.Code, rec.Body.String())
+			t.Fatalf("%s -> %d %s", tc.name, rec.Code, rec.Body.String())
 		}
 	}
 }

@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fullfran/training-mcp/internal/sqlitestore"
+	"github.com/fullfran/training-mcp/internal/training"
 )
 
 func TestParseArgs(t *testing.T) {
@@ -68,6 +70,10 @@ func TestMediaGCRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(orphan, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-3 * training.OrphanGrace)
+	if err := os.Chtimes(orphan, old, old); err != nil { // media-gc spares files younger than the grace period
 		t.Fatal(err)
 	}
 	if err := runWithContext(context.Background(), []string{"media-gc"}); err != nil {

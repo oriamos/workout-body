@@ -25,13 +25,15 @@ directory** — see [backup-restore.md](backup-restore.md).
 
 Deleting a set (or its workout) deletes its videos' rows (cascade) and their
 files. A file left behind after a crash (written, but its row never recorded) is
-harmless and is removed by `training-mcp media-gc`.
+harmless and is removed by `training-mcp media-gc`, which only touches files
+older than one hour (so a file whose row is about to commit is never collected)
+and also clears abandoned upload temp files.
 
 ## Rules
 
 | Rule | Value |
 |---|---|
-| Accepted containers | MP4, MOV (QuickTime), WebM — **identified from the file's bytes**. The declared `Content-Type` and the file extension are not trusted, so a script renamed `x.mp4` is rejected. |
+| Accepted containers | MP4 (known video brands such as `isom`, `mp42`, `avc1`), MOV (QuickTime), WebM — **identified from the file's bytes**; other ISO-media files such as HEIC/AVIF photos and non-WebM Matroska are refused. The declared `Content-Type` and the file extension are not trusted, so a script renamed `x.mp4` is rejected. |
 | Maximum size | `MAX_VIDEO_MB` (default 200). A file exactly at the limit is accepted, one byte over is refused with HTTP 413 and leaves nothing on disk. |
 | Per-owner limit | 5 videos per set, 10 per exercise (HTTP 409 beyond that). |
 | File names | Only the base name is kept (no path components), control characters removed, ≤ 120 characters. Storage keys are random, so names never touch the filesystem. |

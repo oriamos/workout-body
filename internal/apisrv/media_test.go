@@ -110,7 +110,7 @@ func TestVideoRawUploadStreamAndRange(t *testing.T) {
 func TestVideoMultipartUploadAndGuide(t *testing.T) {
 	e := newMediaEnv(t, 1<<20)
 	logSet(t, e, "Front Squat")
-	webm := append([]byte{0x1A, 0x45, 0xDF, 0xA3}, make([]byte, 500)...)
+	webm := append(append([]byte{0x1A, 0x45, 0xDF, 0xA3}, []byte("....webm")...), make([]byte, 500)...)
 	caption := "  cue: knees out "
 	body, ct := multipartBody(t, &caption, "file", "how to.webm", webm)
 	r := e.do("POST", "/api/v1/exercises/front%20squat/videos?caption=ignored", body, h("Content-Type", ct))

@@ -120,8 +120,8 @@ overwriting each other.
 | 401 | — | Missing/wrong token. Answered by the authentication layer in front of the API: a plain-text `unauthorized` body with `WWW-Authenticate: Bearer`, **not** the JSON error shape |
 | 404 | `not_found` | Unknown id, date, name |
 | 405 | `method_not_allowed` | Known path, wrong method (`Allow` header set) |
-| 409 | `conflict` | Idempotency-key reuse with another payload, plan-name collision, alias/rename collision, per-owner video limit |
-| 412 | `precondition_failed` | Stale `If-Match` |
+| 409 | `conflict` | Idempotency-key reuse with another payload, plan-name collision, alias/rename collision, swap onto an already-prescribed exercise, per-owner video limit — regardless of any `If-Match` header |
+| 412 | `precondition_failed` | Stale revision (the record changed since you read it) |
 | 413 | `payload_too_large` | JSON body over 1 MiB, or a video over `MAX_VIDEO_MB` |
 | 415 | `unsupported_media_type` | Wrong `Content-Type` |
 | 428 | `precondition_required` | `If-Match` missing where required |

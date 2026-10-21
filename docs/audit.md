@@ -57,8 +57,9 @@ and are what this project changed.
 | Item | Limitation |
 |---|---|
 | Upstream features (muscle groups, feedback, landmarks, SI, load suggestions, PWA) | Kept; messages are in Spanish; not extended. They use non-warm-up sets only. |
-| Legacy exercise names containing doubled spaces | Not collapsed by the migration; they stay reachable only by their old spelling (see [migrations.md](migrations.md)). |
-| Legacy sets with weight > 2000 kg or reps > 1000 | Migration 010 refuses (rolls back, nothing lost) until the rows are corrected. |
+| Legacy values above the new service limits (weight > 2000 kg, reps > 1000) | Migrated and shown as stored; the limits apply only to new input. |
+| `import` with `on_conflict=replace`, and the granular plan-item tools | Explicit overwrites with no revision precondition (use `dry_run`, or `replace_plan` / `PUT /plans/{id}` for the guard). |
+| `media-gc` | Spares files younger than one hour; run it against a live server only if you accept that grace period. Concurrent uploads and slow uploads are not rate-limited. |
 | Videos | No transcoding or thumbnails; playback needs the bearer token; backup needs the media directory as well as the database. |
 | Statistics | Recomputed on read; muscle-group mapping is manual (one group per exercise). |
 

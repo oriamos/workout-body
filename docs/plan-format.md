@@ -49,7 +49,7 @@ you choose which plan to follow on a given date.
 1. **Validate first.** The whole document is parsed and validated, collecting
    *every* problem with its JSON path (`items[2].target_rir: must be between 0 and 10`).
    If anything is wrong nothing is written — no plan, no new exercises.
-2. **Match by name**, case-insensitively.
+2. **Match by name**, case-insensitively (plan names are unique).
    * No plan with that name → a **new plan is created**.
    * A plan with that name exists → depends on `on_conflict`:
      * `error` (default): rejected with a conflict; nothing changes.

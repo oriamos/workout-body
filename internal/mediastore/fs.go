@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fullfran/training-mcp/internal/training"
 )
@@ -115,14 +116,26 @@ func (f *FS) Delete(_ context.Context, key string) error {
 	return err
 }
 
-func (f *FS) Keys(context.Context) ([]string, error) {
+func (f *FS) StaleKeys(_ context.Context, minAge time.Duration) ([]string, error) {
+	cutoff := time.Now().Add(-minAge)
+	// Abandoned uploads (a crash between create and rename) leave files in tmp/.
+	if tmp, err := os.ReadDir(filepath.Join(f.dir, "tmp")); err == nil {
+		for _, e := range tmp {
+			if info, err := e.Info(); err == nil && !e.IsDir() && info.ModTime().Before(cutoff) {
+				os.Remove(filepath.Join(f.dir, "tmp", e.Name()))
+			}
+		}
+	}
 	entries, err := os.ReadDir(f.dir)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	for _, e := range entries {
-		if !e.IsDir() && validKey(e.Name()) {
+		if e.IsDir() || !validKey(e.Name()) {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
 			out = append(out, e.Name())
 		}
 	}

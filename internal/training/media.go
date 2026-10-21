@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrTooLarge means an upload exceeded the configured size limit.
@@ -73,8 +74,15 @@ type BlobStore interface {
 	Put(ctx context.Context, r io.Reader, ext string, max int64) (key string, size int64, sha256hex string, err error)
 	Open(ctx context.Context, key string) (io.ReadSeekCloser, error)
 	Delete(ctx context.Context, key string) error
-	Keys(ctx context.Context) ([]string, error)
+	// StaleKeys lists stored blobs last modified more than minAge ago, and
+	// clears abandoned upload temp files older than that. Young files are
+	// skipped: one may have just been written and not yet recorded.
+	StaleKeys(ctx context.Context, minAge time.Duration) ([]string, error)
 }
+
+// OrphanGrace is how old an unreferenced file must be before media-gc removes
+// it, so a file written a moment before its row commits is never collected.
+const OrphanGrace = time.Hour
 
 // ExerciseGuide is everything known about how to perform an exercise.
 type ExerciseGuide struct {
@@ -110,14 +118,25 @@ func (s *Service) MaxVideoBytes() int64 { return s.maxVideo }
 func sniffVideo(head []byte) (contentType, ext string, ok bool) {
 	switch {
 	case len(head) >= 12 && string(head[4:8]) == "ftyp":
-		if string(head[8:12]) == "qt  " {
+		brand := string(head[8:12])
+		if brand == "qt  " {
 			return "video/quicktime", ".mov", true
 		}
-		return "video/mp4", ".mp4", true
-	case len(head) >= 4 && bytes.Equal(head[:4], []byte{0x1A, 0x45, 0xDF, 0xA3}):
+		// ISO base media files include images (HEIC, AVIF), so only the
+		// brands real video recorders and exporters write are accepted.
+		if videoBrands[brand] {
+			return "video/mp4", ".mp4", true
+		}
+	case len(head) >= 4 && bytes.Equal(head[:4], []byte{0x1A, 0x45, 0xDF, 0xA3}) && bytes.Contains(head, []byte("webm")):
 		return "video/webm", ".webm", true
 	}
 	return "", "", false
+}
+
+var videoBrands = map[string]bool{
+	"isom": true, "iso2": true, "iso3": true, "iso4": true, "iso5": true, "iso6": true, "iso7": true, "iso8": true, "iso9": true,
+	"mp41": true, "mp42": true, "mp71": true, "avc1": true, "M4V ": true, "M4VH": true, "M4VP": true,
+	"dash": true, "3gp4": true, "3gp5": true, "3gp6": true, "3gp7": true, "3g2a": true, "3g2b": true, "MSNV": true, "NDAS": true,
 }
 
 func cleanFilename(name string) string {
@@ -171,8 +190,20 @@ func (s *Service) AttachVideo(ctx context.Context, ownerType string, ownerRef st
 		return Media{}, invalid("owner_type", "must be %q or %q", OwnerSet, OwnerExercise)
 	}
 
-	br := bufio.NewReaderSize(r, 64)
-	head, _ := br.Peek(16)
+	// Refuse early when the owner is already at its video limit, so a doomed
+	// upload is not written to disk first (AddMedia stays the authority).
+	if existing, err := s.media.ListMedia(ctx, ownerType, ownerID); err == nil {
+		limit := MaxMediaPerSet
+		if ownerType == OwnerExercise {
+			limit = MaxMediaPerExercise
+		}
+		if len(existing) >= limit {
+			return Media{}, fmt.Errorf("%w: a %s can have at most %d videos; delete one first", ErrConflict, ownerType, limit)
+		}
+	}
+
+	br := bufio.NewReaderSize(r, 128)
+	head, _ := br.Peek(64)
 	ct, ext, ok := sniffVideo(head)
 	if !ok {
 		return Media{}, invalid("file", "not a supported video; use MP4, MOV (QuickTime) or WebM")
@@ -319,8 +350,8 @@ func (s *Service) removeBlobs(ctx context.Context, keys []string) {
 }
 
 // PurgeOrphanBlobs deletes stored files that no media row references (for
-// example after a crash between writing a file and recording it). It returns
-// how many were removed.
+// example after a crash between writing a file and recording it) and are older
+// than OrphanGrace. It returns how many were removed.
 func (s *Service) PurgeOrphanBlobs(ctx context.Context) (int, error) {
 	if !s.MediaEnabled() {
 		return 0, ErrMediaDisabled
@@ -329,7 +360,7 @@ func (s *Service) PurgeOrphanBlobs(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	keys, err := s.blobs.Keys(ctx)
+	keys, err := s.blobs.StaleKeys(ctx, OrphanGrace)
 	if err != nil {
 		return 0, err
 	}
