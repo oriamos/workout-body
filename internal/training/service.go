@@ -25,6 +25,11 @@ type Service struct {
 	store Store
 	clock Clock
 	loc   *time.Location
+
+	// Optional video storage, enabled with WithMedia.
+	media    MediaStore
+	blobs    BlobStore
+	maxVideo int64
 }
 
 func NewService(store Store, clock Clock) *Service { return &Service{store: store, clock: clock} }
@@ -913,7 +918,15 @@ func (s *Service) DeleteSet(ctx context.Context, id int64, expectedRevision *int
 	if id <= 0 {
 		return 0, 0, 0, invalid("set_id", "must be positive")
 	}
-	return s.store.DeleteSet(ctx, id, expectedRevision)
+	var keys []string
+	if s.media != nil {
+		keys, _ = s.media.KeysForSet(ctx, id) // rows cascade away with the set
+	}
+	sessionID, total, left, err := s.store.DeleteSet(ctx, id, expectedRevision)
+	if err == nil {
+		s.removeBlobs(ctx, keys)
+	}
+	return sessionID, total, left, err
 }
 
 // GetSet returns one set by id.
@@ -968,7 +981,15 @@ func (s *Service) DeleteSession(ctx context.Context, id int64) (int, error) {
 	if id <= 0 {
 		return 0, ErrValidation
 	}
-	return s.store.DeleteSession(ctx, id)
+	var keys []string
+	if s.media != nil {
+		keys, _ = s.media.KeysForWorkout(ctx, id)
+	}
+	n, err := s.store.DeleteSession(ctx, id)
+	if err == nil {
+		s.removeBlobs(ctx, keys)
+	}
+	return n, err
 }
 
 // ExerciseHistory returns one exercise's sets newest first, plus its best set

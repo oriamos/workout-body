@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	_ "time/tzdata" // embedded zone database: distroless images ship none
@@ -24,7 +25,14 @@ type Config struct {
 	Timezone string
 	// Location is Timezone, loaded.
 	Location *time.Location
+	// MediaDir holds uploaded videos. Defaults to a "media" directory beside
+	// the database file.
+	MediaDir string
+	// MaxVideoBytes is the upload size limit.
+	MaxVideoBytes int64
 }
+
+const defaultMaxVideoMB = 200
 
 func Load(addr string) (Config, error) {
 	if addr == "" {
@@ -55,7 +63,20 @@ func Load(addr string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("WORKOUT_TIMEZONE %q is not a valid IANA timezone (for example Asia/Jerusalem): %w", tz, err)
 	}
-	return Config{Addr: addr, DBPath: db, Token: token, AuthDisabled: disabled, WebBasePath: webBase, Timezone: tz, Location: loc}, nil
+	mediaDir := strings.TrimSpace(os.Getenv("MEDIA_DIR"))
+	if mediaDir == "" {
+		mediaDir = filepath.Join(filepath.Dir(db), "media")
+	}
+	maxMB := int64(defaultMaxVideoMB)
+	if v := strings.TrimSpace(os.Getenv("MAX_VIDEO_MB")); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 1 || n > 4096 {
+			return Config{}, fmt.Errorf("MAX_VIDEO_MB %q must be a whole number between 1 and 4096", v)
+		}
+		maxMB = n
+	}
+	return Config{Addr: addr, DBPath: db, Token: token, AuthDisabled: disabled, WebBasePath: webBase, Timezone: tz, Location: loc,
+		MediaDir: mediaDir, MaxVideoBytes: maxMB << 20}, nil
 }
 
 // normalizeBasePath accepts "", "app", "/app" or "/app/" and returns "" or
