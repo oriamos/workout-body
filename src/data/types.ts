@@ -3,12 +3,22 @@
 
 export type MuscleGroup = 'chest' | 'back' | 'shoulders' | 'quads' | 'posterior' | 'arms' | 'calves' | 'other';
 
+export interface HowTo {
+  summary: string;
+  steps: string[];
+  cues: string[];
+  mistakes: string[];
+}
+
 export interface Exercise {
   id: string;
   name: string; // English display name
   muscle: MuscleGroup;
   equipment: string;
   restSec: number;
+  howTo?: HowTo;
+  /** Reference demo clip. The prototype ships one placeholder clip for every exercise. */
+  demoVideo?: string;
 }
 
 export type SetType = 'warmup' | 'working' | 'drop' | 'failure';
@@ -21,6 +31,8 @@ export interface SetEntry {
   rir: number | null;
   rpe: number | null;
   done: boolean;
+  /** The user's own recording of this set. Prototype: an in-memory object URL, gone on reload. */
+  video?: { url: string; name: string } | null;
   /** Who last changed it. Drives the subtle "updated" marker, never shown as plumbing. */
   by?: 'me' | 'assistant';
 }

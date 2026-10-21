@@ -237,3 +237,28 @@ button.cal-day:hover:not(.sel) { background: var(--s3); }
 .preview-table td { white-space: nowrap; }
 .preview-table td:nth-child(2) { white-space: normal; }
 .session-sets { max-width: 420px; }
+
+/* ---------- guide + set videos ---------- */
+.guide { display: grid; gap: 14px; }
+.guide-body { display: grid; gap: 10px; }
+.video { width: 100%; max-height: 300px; border-radius: var(--r-md); background: #000; display: block; }
+.howto { display: grid; gap: 8px; }
+.howto h4 { margin: 8px 0 0; font-size: 13px; font-weight: 700; color: var(--text-3); }
+.howto-summary { color: var(--text); line-height: 1.55; }
+.howto-steps { margin: 0; padding-inline-start: 22px; display: grid; gap: 6px; line-height: 1.55; color: var(--text-2); }
+.howto-steps li::marker { color: var(--accent-text); font-weight: 700; }
+.howto-cues { display: grid; gap: 6px; color: var(--text-2); }
+.howto-cues li { display: flex; gap: 8px; align-items: flex-start; line-height: 1.5; }
+.howto-cues li .icon { margin-top: 3px; color: var(--accent); flex: none; }
+.howto-cues.bad li .icon { color: var(--warn); }
+.demo { display: grid; gap: 10px; }
+.video-empty { display: grid; justify-items: center; text-align: center; gap: 6px; padding: 24px 12px; border: 1px dashed var(--line-2); border-radius: var(--r-lg); color: var(--text-2); }
+.my-videos { display: grid; gap: 16px; }
+.my-video-meta { margin-top: 6px; font-size: 13.5px; color: var(--text-2); }
+.my-video-meta a { font-weight: 600; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.setvideo { display: grid; gap: 6px; max-width: 360px; }
+.setvideo-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.more-video { position: absolute; bottom: 7px; inset-inline-end: 6px; color: var(--accent); }
+.howto-steps { list-style: none; padding: 0; counter-reset: step; }
+.howto-steps li { counter-increment: step; display: flex; gap: 10px; align-items: flex-start; }
+.howto-steps li::before { content: counter(step); flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); font-weight: 700; font-size: 13px; display: grid; place-items: center; margin-top: 1px; }

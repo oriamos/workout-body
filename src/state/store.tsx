@@ -243,6 +243,20 @@ function useStoreImpl() {
           }
         } else mutate({ t: 'updateSet', setId, patch: { [field]: get().conflicts[setId]?.find((c) => c.field === field)?.theirs ?? null, by: 'assistant' } }, setId);
       },
+      attachVideo(setId: string, file: File | undefined) {
+        if (!file) return;
+        if (!file.type.startsWith('video/')) return toast('אפשר לצרף רק קובץ וידאו', 'error');
+        if (file.size > 300 * 1024 * 1024) return toast('הסרטון גדול מדי (עד 300MB)', 'error');
+        const prevUrl = findSet(get().data, setId)?.set.video?.url;
+        if (prevUrl) URL.revokeObjectURL(prevUrl);
+        mutate({ t: 'updateSet', setId, patch: { video: { url: URL.createObjectURL(file), name: file.name }, by: 'me' } }, setId);
+      },
+      removeVideo(setId: string) {
+        const prev = findSet(get().data, setId)?.set.video;
+        if (!prev) return;
+        mutate({ t: 'updateSet', setId, patch: { video: null, by: 'me' } }, setId);
+        toast('הסרטון הוסר מהסט', 'info', { label: 'ביטול', run: () => mutate({ t: 'updateSet', setId, patch: { video: prev, by: 'me' } }, setId) });
+      },
       addSet(weId: string) {
         const set = blankSet();
         mutate({ t: 'addSet', weId, set }, set.id);

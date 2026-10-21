@@ -5,8 +5,9 @@ import { exerciseById, exerciseSessions, isWorking, previousFor, previousSession
 import { href, navigate } from '../lib/router';
 import { dayMonth, kg, shortDate } from '../lib/format';
 import { Icon } from './Icon';
-import { Button, Ltr, Menu } from './ui';
+import { Button, IconButton, Ltr, Menu } from './ui';
 import { SetRow, type Ghost } from './SetRow';
+import { GuideSheet } from './Guide';
 
 export function prescriptionText(p: NonNullable<WorkoutExercise['planned']>) {
   const reps = p.repMin === p.repMax ? `${p.repMin}` : `${p.repMin}–${p.repMax}`;
@@ -19,6 +20,7 @@ export function ExerciseCard({ workout, we, onFocusExercise }: { workout: Workou
   const prev = previousSession(state.data, we.exerciseId, workout.date);
   const [peek, setPeek] = useState(false);
   const [editNote, setEditNote] = useState(false);
+  const [guide, setGuide] = useState(false);
   const [noteDraft, setNoteDraft] = useState(we.note);
 
   const working = we.sets.filter(isWorking);
@@ -67,9 +69,11 @@ export function ExerciseCard({ workout, we, onFocusExercise }: { workout: Workou
           {total > 0 && doneN >= total && <Icon name="check" size={14} strokeWidth={2.6} />}
           <Ltr>{doneN}/{total}</Ltr>
         </span>
+        <IconButton icon="book" label={`הסבר וסרטון, ${ex.name}`} onClick={() => setGuide(true)} />
         <Menu
           label={`אפשרויות, ${ex.name}`}
           items={[
+            { label: 'הסבר וסרטון', icon: 'play', onSelect: () => setGuide(true) },
             { label: we.note ? 'עריכת הערה' : 'הוספת הערה', icon: 'note', onSelect: () => { setNoteDraft(we.note); setEditNote(true); } },
             { label: 'פרטי תרגיל', icon: 'progress', onSelect: () => navigate({ name: 'exercise', id: ex.id }) },
             { label: 'הסר תרגיל', icon: 'trash', danger: true, onSelect: () => actions.removeExercise(we.id) },
@@ -126,6 +130,7 @@ export function ExerciseCard({ workout, we, onFocusExercise }: { workout: Workou
         </Button>
       </div>
 
+      <GuideSheet ex={ex} open={guide} onClose={() => setGuide(false)} />
       <div className={`peek ${peek ? 'open' : ''}`} {...(peek ? {} : ({ inert: '' } as object))}>
         <div className="peek-inner">
           {history.length === 0 ? (

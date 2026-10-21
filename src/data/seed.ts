@@ -2,10 +2,11 @@
 // Everything the UI shows (totals, PRs, charts) is computed from these records.
 import type { AppData, Exercise, Plan, PlanExercise, SetEntry, Workout, WorkoutExercise, Prescription } from './types';
 import { addDays } from '../lib/format';
+import { HOWTO } from './howto';
 
 export const TODAY = '2026-10-21'; // fixed so the prototype is reproducible
 
-export const EXERCISES: Exercise[] = [
+const BASE_EXERCISES: Exercise[] = [
   { id: 'bench', name: 'Bench Press', muscle: 'chest', equipment: 'מוט', restSec: 150 },
   { id: 'squat', name: 'Back Squat', muscle: 'quads', equipment: 'מוט', restSec: 180 },
   { id: 'row', name: 'Barbell Row', muscle: 'back', equipment: 'מוט', restSec: 120 },
@@ -22,6 +23,8 @@ export const EXERCISES: Exercise[] = [
   { id: 'calf', name: 'Standing Calf Raise', muscle: 'calves', equipment: 'מכונה', restSec: 60 },
   { id: 'facepull', name: 'Face Pull', muscle: 'shoulders', equipment: 'כבל', restSec: 60 },
 ];
+
+export const EXERCISES: Exercise[] = BASE_EXERCISES.map((e) => ({ ...e, howTo: HOWTO[e.id], demoVideo: '/demo-placeholder.mp4' }));
 
 interface Cfg {
   ex: string;

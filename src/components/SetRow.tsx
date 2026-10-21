@@ -1,8 +1,9 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import type { SetEntry, SetType } from '../data/types';
 import { useStore } from '../state/store';
 import { Icon } from './Icon';
 import { Button, Ltr } from './ui';
+import { VideoPlayer } from './Guide';
 import { useRest } from './RestTimer';
 import { kg } from '../lib/format';
 import { prefs } from '../lib/prefs';
@@ -29,6 +30,7 @@ export function SetRow({ set, number, prev, ghost: ghostIn, exerciseName, restSe
   const rest = useRest();
   const [open, setOpen] = useState(defaultOpen);
   const uid = useId();
+  const fileRef = useRef<HTMLInputElement>(null);
   // Reps logged from outside with no weight, or a finished set with no weight: don't paper over the gap.
   const gap = set.weight == null && (set.done || (set.reps != null && set.by === 'assistant'));
   const ghost: Ghost = gap ? { ...ghostIn, weight: null } : ghostIn;
@@ -106,9 +108,10 @@ export function SetRow({ set, number, prev, ghost: ghostIn, exerciseName, restSe
         >
           <Icon name="check" size={20} strokeWidth={2.4} />
         </button>
-        <button type="button" className={`more ${open ? 'open' : ''}`} aria-expanded={open} aria-controls={`${uid}-detail`} aria-label={`פרטי סט${hasOptional ? ' (יש RPE/RIR)' : ''}, ${setName}`} onClick={() => setOpen((o) => !o)}>
+        <button type="button" className={`more ${open ? 'open' : ''}`} aria-expanded={open} aria-controls={`${uid}-detail`} aria-label={`פרטי סט${hasOptional ? ' (יש RPE/RIR)' : ''}${set.video ? ' (יש סרטון)' : ''}, ${setName}`} onClick={() => setOpen((o) => !o)}>
           <Icon name="down" size={18} />
           {hasOptional && <span className="more-dot" aria-hidden="true" />}
+          {set.video && <Icon name="video" size={12} className="more-video" />}
         </button>
       </div>
 
@@ -165,6 +168,25 @@ export function SetRow({ set, number, prev, ghost: ghostIn, exerciseName, restSe
                 <button key={v} type="button" aria-pressed={set.rir === v} className="optchip" onClick={() => actions.patchSet(set.id, { rir: set.rir === v ? null : v })}><Ltr>{v}</Ltr></button>
               ))}
             </div>
+          </div>
+          <div className="opt">
+            <span className="opt-label" id={`${uid}-vid`}>סרטון של הסט <small>אופציונלי</small></span>
+            <input ref={fileRef} type="file" accept="video/*" hidden onChange={(e) => { actions.attachVideo(set.id, e.target.files?.[0]); e.target.value = ''; }} />
+            {set.video ? (
+              <div className="setvideo">
+                <VideoPlayer src={set.video.url} label={`הסרטון שלי, ${setName}`} />
+                <p className="small muted"><Ltr>{set.video.name}</Ltr></p>
+                <div className="setvideo-actions">
+                  <Button size="sm" variant="secondary" icon="refresh" onClick={() => fileRef.current?.click()}>החלף</Button>
+                  <Button size="sm" variant="ghost" icon="trash" onClick={() => actions.removeVideo(set.id)}>הסר סרטון</Button>
+                </div>
+                <p className="small muted">בפרוטוטיפ הסרטון נשמר בדפדפן בלבד, ויימחק בטעינה מחדש.</p>
+              </div>
+            ) : (
+              <div>
+                <Button size="sm" variant="secondary" icon="video" aria-describedby={`${uid}-vid`} onClick={() => fileRef.current?.click()}>צרף סרטון</Button>
+              </div>
+            )}
           </div>
           <div className="opt-foot">
             <Button size="sm" variant="danger" icon="trash" onClick={() => actions.removeSet(set.id)}>מחק סט</Button>

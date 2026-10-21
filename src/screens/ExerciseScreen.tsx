@@ -9,6 +9,7 @@ import { Chip, EmptyState, Ltr, Segmented } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { LineChart, type Point } from '../components/Charts';
 import { MUSCLE } from '../lib/labels';
+import { GuideTabs } from '../components/Guide';
 import { RANGES, rangeStart, type RangeKey } from '../lib/ranges';
 
 const hasData = (s: SetEntry) => s.weight != null || s.reps != null || s.done;
@@ -104,6 +105,11 @@ export function ExerciseScreen({ id }: { id: string }) {
                 </div>
                 <p className="muted small">{METRICS[metric].label}: {METRICS[metric].note}.</p>
                 <LineChart points={pts} start={start} end={today} unit={METRICS[metric].unit} label={`${METRICS[metric].label} של ${ex.name}`} estimate={metric === 'e1rm'} zeroBased={metric === 'volume' || metric === 'reps'} />
+              </section>
+
+              <section className="prog-block" style={{ marginTop: 22 }} aria-label="הסבר וסרטונים">
+                <h2 className="block-title">איך מבצעים</h2>
+                <GuideTabs ex={ex} />
               </section>
 
               <section className="prog-block" style={{ marginTop: 22 }} aria-label="שיאים אישיים">
