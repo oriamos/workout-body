@@ -5,6 +5,7 @@ import { useStore } from './state/store';
 import { AppShell } from './components/Shell';
 import { PlansScreen } from './screens/PlansScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
+import { ExercisesScreen } from './screens/ExercisesScreen';
 import { ExerciseScreen } from './screens/ExerciseScreen';
 import { ProgressScreen } from './screens/ProgressScreen';
 import { LoadError, TodayLoading, TodayScreen } from './screens/TodayScreen';
@@ -25,6 +26,7 @@ export default function App() {
       case 'plans': screen = <PlansScreen />; break;
       case 'history': screen = <HistoryScreen />; break;
       case 'progress': screen = <ProgressScreen />; break;
+      case 'exercises': screen = <ExercisesScreen />; break;
       case 'exercise': screen = <ExerciseScreen id={route.id} />; break;
       default: screen = <TodayScreen />;
     }

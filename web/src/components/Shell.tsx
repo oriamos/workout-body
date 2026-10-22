@@ -10,6 +10,7 @@ import { IS_MOCK } from '../data/source';
 const TABS: { tab: Tab; label: string; icon: IconName; route: Parameters<typeof navigate>[0] }[] = [
   { tab: 'today', label: 'היום', icon: 'today', route: { name: 'today' } },
   { tab: 'plans', label: 'תוכניות', icon: 'plans', route: { name: 'plans' } },
+  { tab: 'exercises', label: 'תרגילים', icon: 'list', route: { name: 'exercises' } },
   { tab: 'history', label: 'היסטוריה', icon: 'history', route: { name: 'history' } },
   { tab: 'progress', label: 'התקדמות', icon: 'progress', route: { name: 'progress' } },
 ];

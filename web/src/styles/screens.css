@@ -262,3 +262,22 @@ button.cal-day:hover:not(.sel) { background: var(--s3); }
 .howto-steps { list-style: none; padding: 0; counter-reset: step; }
 .howto-steps li { counter-increment: step; display: flex; gap: 10px; align-items: flex-start; }
 .howto-steps li::before { content: counter(step); flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); font-weight: 700; font-size: 13px; display: grid; place-items: center; margin-top: 1px; }
+
+/* ---- exercise library ---------------------------------------------------- */
+.exlib-controls { display: grid; gap: 10px; margin-bottom: 14px; }
+.exlib { list-style: none; margin: 0; padding: 4px 0; }
+.exlib > li + li { border-top: 1px solid var(--line); }
+.exlib-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; color: inherit; text-decoration: none; min-height: 64px; }
+.exlib-row:hover { background: var(--s2); }
+.exlib-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-md); }
+.exlib-row > svg { flex: none; color: var(--text-3); }
+.exlib-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.exlib-name { font-weight: 700; font-size: 15.5px; }
+.exlib-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 13px; color: var(--text-2); }
+.exlib-sets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.exlib-side { flex: none; display: grid; justify-items: end; gap: 2px; text-align: end; }
+.exlib-top { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; display: inline-flex; align-items: baseline; gap: 3px; }
+.exlib-top small { font-size: 12px; font-weight: 600; color: var(--text-3); }
+.exlib-delta { font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.exlib-delta.up { color: var(--ok, var(--accent)); }
+.exlib-best { font-size: 12px; color: var(--text-3); }

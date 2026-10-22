@@ -1,11 +1,12 @@
 import { useSyncExternalStore } from 'react';
 
-export type Tab = 'today' | 'plans' | 'history' | 'progress';
+export type Tab = 'today' | 'plans' | 'exercises' | 'history' | 'progress';
 export type Route =
   | { name: 'today' }
   | { name: 'plans'; id?: string }
   | { name: 'history'; date?: string }
   | { name: 'progress' }
+  | { name: 'exercises' }
   | { name: 'exercise'; id: string };
 
 export function parse(hash: string): Route {
@@ -17,6 +18,8 @@ export function parse(hash: string): Route {
       return { name: 'history', date: parts[1] };
     case 'progress':
       return { name: 'progress' };
+    case 'exercises':
+      return { name: 'exercises' };
     case 'exercise':
       return parts[1] ? { name: 'exercise', id: parts[1] } : { name: 'today' };
     default:
@@ -30,6 +33,7 @@ export const href = (r: Route): string => {
     case 'plans': return r.id ? `#/plans/${r.id}` : '#/plans';
     case 'history': return r.date ? `#/history/${r.date}` : '#/history';
     case 'progress': return '#/progress';
+    case 'exercises': return '#/exercises';
     case 'exercise': return `#/exercise/${r.id}`;
   }
 };

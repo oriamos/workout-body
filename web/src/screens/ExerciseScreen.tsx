@@ -76,7 +76,7 @@ export function ExerciseScreen({ id }: { id: string }) {
     <div className="page">
       <PageHeader
         title={<Ltr>{ex.name}</Ltr>}
-        back={{ label: 'חזרה', onClick: () => goBack({ name: 'progress' }) }}
+        back={{ label: 'חזרה', onClick: () => goBack({ name: 'exercises' }) }}
         sub={<><Chip>{MUSCLE[ex.muscle]}</Chip>{ex.equipment && <Chip>{ex.equipment}</Chip>}</>}
       />
       {sessions.length === 0 ? (
