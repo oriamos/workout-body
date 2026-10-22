@@ -227,3 +227,4 @@ body.has-rest .main { padding-bottom: calc(var(--nav-h) + 76px + env(safe-area-i
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
   .spin, .skeleton { animation-duration: 1.4s !important; animation-iteration-count: infinite !important; }
 }
+.iconbtn[aria-current='page'] { background: var(--accent-soft); color: var(--accent); }

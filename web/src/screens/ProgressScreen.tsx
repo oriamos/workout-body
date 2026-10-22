@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useStore } from '../state/store';
 import { addDays, dayMonth, longDate, num, shortDate, vol, weekStart } from '../lib/format';
 import { exerciseById, exerciseSessions, findPRs, isWorking, setVolume } from '../lib/stats';
-import { href, navigate } from '../lib/router';
+import { goBack, href, navigate } from '../lib/router';
 import { PageHeader } from '../components/Shell';
 import { BarChart, LineChart, type Bar } from '../components/Charts';
 import { Ltr, Segmented } from '../components/ui';
@@ -51,7 +51,7 @@ export function ProgressScreen() {
 
   return (
     <div className="page">
-      <PageHeader title="התקדמות" sub={<>מ־{shortDate(calc.start)} עד היום</>} />
+      <PageHeader title="התקדמות" sub={<>מ־{shortDate(calc.start)} עד היום</>} back={{ label: 'חזרה', onClick: () => goBack({ name: 'today' }) }} />
       <div className="progress">
         <div className="prog-top">
           <Segmented label="טווח זמן לכל המסך" value={range} onChange={setRange} options={RANGES.map((r) => ({ value: r.key, label: r.label }))} />

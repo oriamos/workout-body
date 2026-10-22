@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { href, navigate, useActiveTab, type Tab } from '../lib/router';
+import { href, navigate, useActiveTab, useRoute, type Tab } from '../lib/router';
 import { Icon, type IconName } from './Icon';
 import { IconButton, SaveStatus, Toasts } from './ui';
 import { SettingsSheet } from './SettingsSheet';
@@ -12,7 +12,6 @@ const TABS: { tab: Tab; label: string; icon: IconName; route: Parameters<typeof 
   { tab: 'plans', label: 'תוכניות', icon: 'plans', route: { name: 'plans' } },
   { tab: 'exercises', label: 'תרגילים', icon: 'list', route: { name: 'exercises' } },
   { tab: 'history', label: 'היסטוריה', icon: 'history', route: { name: 'history' } },
-  { tab: 'progress', label: 'התקדמות', icon: 'progress', route: { name: 'progress' } },
 ];
 
 const Ctx = createContext<{ openSettings(): void; openDemo(): void }>({ openSettings() {}, openDemo() {} });
@@ -20,9 +19,12 @@ export const useShell = () => useContext(Ctx);
 
 export function HeaderTools() {
   const { openSettings, openDemo } = useShell();
+  const onProgress = useRoute().name === 'progress';
   return (
     <div className="head-tools">
       {IS_MOCK && <IconButton icon="flask" label="כלי הדגמה (פרוטוטיפ)" onClick={openDemo} />}
+      {/* Progress lives in the header, not in the bottom tab bar. */}
+      <IconButton icon="progress" label="התקדמות" aria-current={onProgress ? 'page' : undefined} onClick={() => navigate({ name: 'progress' })} />
       <IconButton icon="gear" label="הגדרות" onClick={openSettings} />
     </div>
   );
