@@ -1,6 +1,6 @@
 // Deterministic synthetic history: ~8 weeks, upper/lower split, plus today's session.
 // Everything the UI shows (totals, PRs, charts) is computed from these records.
-import type { AppData, Exercise, Plan, PlanExercise, SetEntry, Workout, WorkoutExercise, Prescription } from './types';
+import type { AppData, Exercise, Plan, PlanExercise, PlanSchedule, SetEntry, Workout, WorkoutExercise, Prescription } from './types';
 import { addDays } from '../lib/format';
 import { HOWTO } from './howto';
 
@@ -105,10 +105,20 @@ function rng(seed: number) {
 const round25 = (n: number) => Math.round(n / 2.5) * 2.5;
 const blank = (id: string, type: SetEntry['type'] = 'working'): SetEntry => ({ id, type, weight: null, reps: null, rir: null, rpe: null, done: false });
 
+/** The fixed weekly schedule the synthetic history follows (see buildHistory's slots), plus one frequency plan. */
+const SCHEDULES: Record<string, PlanSchedule> = {
+  'upper-a': { type: 'weekdays', days: ['mon'] },
+  'lower-a': { type: 'weekdays', days: ['tue'] },
+  'upper-b': { type: 'weekdays', days: ['thu'] },
+  'lower-b': { type: 'weekdays', days: ['fri'] },
+  'full-body': { type: 'times_per_week', times_per_week: 1 },
+};
+
 function buildPlans(): Plan[] {
   const plans: Plan[] = Object.entries(PLAN_CFG).map(([id, p]) => ({
     id,
     name: p.name,
+    schedule: SCHEDULES[id],
     exercises: p.items.map((c, i): PlanExercise => ({
       id: `${id}-${i}`,
       exerciseId: c.ex,
@@ -120,7 +130,7 @@ function buildPlans(): Plan[] {
       rpe: c.rpeLast ? 8 : null,
     })),
   }));
-  plans.push(FULL_BODY);
+  plans.push({ ...FULL_BODY, schedule: SCHEDULES['full-body'] });
   return plans;
 }
 

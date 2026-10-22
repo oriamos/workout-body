@@ -51,10 +51,27 @@ interface LineProps {
   compact?: boolean;
   height?: number;
   format?: (v: number) => string;
+  /** Draw the main series as separate points (no connecting line), e.g. daily weigh-ins. */
+  dotsOnly?: boolean;
+  /** A second series in the same unit (e.g. a weekly average), drawn as a line; null breaks the line. */
+  overlay?: { points: Point[]; label: string };
 }
 
-/** One series, one unit. Time runs left to right even in RTL pages; labels are LTR-isolated. */
-export function LineChart({ points, start, end, unit, label, estimate, zeroBased, compact, height, format = num }: LineProps) {
+function segments(pts: Point[], X: (d: string) => number, Y: (v: number) => number) {
+  const segs: { x: number; y: number }[][] = [];
+  let run: { x: number; y: number }[] = [];
+  for (const p of pts) {
+    if (p.value == null) {
+      if (run.length) segs.push(run);
+      run = [];
+    } else run.push({ x: X(p.date), y: Y(p.value) });
+  }
+  if (run.length) segs.push(run);
+  return segs;
+}
+
+/** One series, one unit (plus an optional overlay in the same unit). Time runs left to right even in RTL pages; labels are LTR-isolated. */
+export function LineChart({ points, start, end, unit, label, estimate, zeroBased, compact, height, format = num, dotsOnly, overlay }: LineProps) {
   const [wrap, W] = useWidth();
   const H = height ?? (compact ? 92 : 190);
   const m = compact ? { l: 6, r: 6, t: 28, b: 16 } : { l: 38, r: 10, t: 10, b: 24 };
@@ -64,8 +81,10 @@ export function LineChart({ points, start, end, unit, label, estimate, zeroBased
   const selIdx = sel != null && sel < vis.length ? sel : vis.length - 1 - [...vis].reverse().findIndex((p) => p.value != null);
   const cur = vis[selIdx] && vis[selIdx].value != null ? vis[selIdx] : null;
 
-  const lo = valid.length ? Math.min(...valid.map((p) => p.value)) : 0;
-  const hi = valid.length ? Math.max(...valid.map((p) => p.value)) : 1;
+  const ov = (overlay?.points ?? []).filter((p) => p.date >= start && p.date <= end);
+  const all = [...valid.map((p) => p.value), ...(ov.filter((p) => p.value != null).map((p) => p.value) as number[])];
+  const lo = all.length ? Math.min(...all) : 0;
+  const hi = all.length ? Math.max(...all) : 1;
   const ticks = niceTicks(zeroBased ? 0 : lo, hi, compact ? 2 : 3);
   const y0 = zeroBased ? 0 : ticks[0];
   const y1 = ticks[ticks.length - 1];
@@ -73,15 +92,8 @@ export function LineChart({ points, start, end, unit, label, estimate, zeroBased
   const X = (d: string) => m.l + (diffDays(d, start) / span) * (W - m.l - m.r);
   const Y = (v: number) => H - m.b - ((v - y0) / (y1 - y0 || 1)) * (H - m.t - m.b);
 
-  const segs: { x: number; y: number }[][] = [];
-  let run: { x: number; y: number }[] = [];
-  for (const p of vis) {
-    if (p.value == null) {
-      if (run.length) segs.push(run);
-      run = [];
-    } else run.push({ x: X(p.date), y: Y(p.value) });
-  }
-  if (run.length) segs.push(run);
+  const segs = dotsOnly ? [] : segments(vis, X, Y);
+  const ovSegs = segments(ov, X, Y);
 
   const xt: string[] = [];
   const stepDays = compact ? span : span > 40 ? 14 : 7;
@@ -135,6 +147,10 @@ export function LineChart({ points, start, end, unit, label, estimate, zeroBased
         {segs.map((s, i) => (
           <polyline key={i} className="series" points={s.map((p) => `${p.x},${p.y}`).join(' ')} />
         ))}
+        {ovSegs.map((s, i) => (
+          <polyline key={`o${i}`} className="series series-2" points={s.map((p) => `${p.x},${p.y}`).join(' ')} />
+        ))}
+        {ov.map((p) => p.value != null && <rect key={`o${p.date}`} className="pt-2" x={X(p.date) - 3.5} y={Y(p.value) - 3.5} width={7} height={7} rx={1.5}><title>{`${overlay?.label}: ${format(p.value)} ${unit}`}</title></rect>)}
         {vis.map((p, i) =>
           p.value == null ? (
             <path key={p.date} className="missing" d={`M${X(p.date)} ${H - m.b - 6}l4 4-4 4-4-4z`}><title>{`${shortDate(p.date)}: אין ערך מתועד`}</title></path>

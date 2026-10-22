@@ -3,6 +3,7 @@ const P: Record<string, string> = {
   plans: 'M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1zM8 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-2M9 12h6M9 16h4',
   history: 'M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM4 10h16M8 3v4M16 3v4',
   progress: 'M4 19V5M4 19h16M8 15l4-4 3 3 5-6',
+  scale: 'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8.5 10.5a3.5 3.5 0 0 1 7 0zM12 10.5l1.2-1.8',
   check: 'M5 12.5l4.5 4.5L19 7.5',
   plus: 'M12 5v14M5 12h14',
   minus: 'M5 12h14',

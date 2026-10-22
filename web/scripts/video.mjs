@@ -8,7 +8,7 @@ const errs = [];
 p.on('pageerror', (e) => errs.push(String(e)));
 p.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
 const ok = (c, m) => console.log(c ? 'PASS' : 'FAIL', m);
-await p.goto('http://127.0.0.1:5173/#/today');
+await p.goto('http://127.0.0.1:5173/#/workout');
 await p.waitForSelector('.ex');
 await p.getByRole('button', { name: /הסבר וסרטון, Bench Press/ }).click();
 await p.waitForSelector('.howto');

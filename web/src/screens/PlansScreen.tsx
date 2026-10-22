@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import type { Plan, PlanExercise } from '../data/types';
+import type { Plan, PlanExercise, PlanSchedule, Weekday } from '../data/types';
+import { scheduleText, weekOrder, WEEKDAY_HE } from '../data/schedule';
 import { useStore, useToday } from '../state/store';
 import { goBack, navigate, useRoute, href } from '../lib/router';
 import { exerciseById } from '../lib/stats';
 import { exportPlan } from '../lib/planImport';
 import { kg } from '../lib/format';
 import { PageHeader } from '../components/Shell';
-import { Button, Chip, EmptyState, IconButton, Ltr, Menu } from '../components/ui';
+import { Button, Chip, EmptyState, IconButton, Ltr, Menu, Segmented } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { ImportSheet } from '../components/ImportSheet';
 import { AddExerciseSheet } from '../components/AddExerciseSheet';
@@ -28,6 +29,7 @@ function PlanList({ activeId }: { activeId?: string }) {
                 <b className="plan-name"><Ltr>{p.name}</Ltr></b>
                 {today?.planId === p.id && <Chip tone="accent">אימון היום</Chip>}
                 {p.importedAt && <Chip tone="neutral">יובא</Chip>}
+                {scheduleText(p.schedule) && <Chip tone="neutral" icon="calendar" className="plan-sched">{scheduleText(p.schedule)}</Chip>}
                 <span className="plan-count">{p.exercises.length} תרגילים · {setsOf(p)} סטים</span>
               </span>
               <span className="plan-names"><Ltr>{names.slice(0, 3).join(' · ')}</Ltr>{names.length > 3 && <span className="plan-more">ועוד {names.length - 3}</span>}</span>
@@ -127,6 +129,45 @@ function PlanExerciseRow({ plan, index, pe }: { plan: Plan; index: number; pe: P
   );
 }
 
+type SchedMode = 'none' | 'weekdays' | 'times';
+
+/** When the plan is meant to be done: fixed weekdays, a weekly frequency, or nothing. Drives the week view. */
+function ScheduleEditor({ plan }: { plan: Plan }) {
+  const { actions } = useStore();
+  const s = plan.schedule ?? null;
+  const [mode, setMode] = useState<SchedMode>(s?.type === 'weekdays' ? 'weekdays' : s?.type === 'times_per_week' ? 'times' : 'none');
+  const save = (schedule: PlanSchedule | null) => actions.savePlan({ ...plan, schedule });
+  const days = s?.type === 'weekdays' ? s.days : [];
+  const times = s?.type === 'times_per_week' ? s.times_per_week : 2;
+  const pick = (m: SchedMode) => {
+    setMode(m);
+    if (m === 'none') save(null);
+    if (m === 'times') save({ type: 'times_per_week', times_per_week: times });
+    // weekdays: saved once a day is chosen
+  };
+  const toggle = (d: Weekday) => {
+    const next = days.includes(d) ? days.filter((x) => x !== d) : [...days, d];
+    // Stored Monday first, like the engine.
+    save(next.length ? { type: 'weekdays', days: (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as Weekday[]).filter((x) => next.includes(x)) } : null);
+  };
+  return (
+    <section className="sched" aria-labelledby={`sched-h-${plan.id}`}>
+      <h3 id={`sched-h-${plan.id}`} className="sched-title"><Icon name="calendar" size={16} /> לוח זמנים</h3>
+      <Segmented size="sm" label="סוג לוח זמנים" value={mode} onChange={pick} options={[{ value: 'none', label: 'ללא' }, { value: 'weekdays', label: 'ימים קבועים' }, { value: 'times', label: 'פעמים בשבוע' }]} />
+      {mode === 'weekdays' && (
+        <div className="opt-chips" role="group" aria-label="ימי האימון">
+          {weekOrder().map((d) => <button key={d} type="button" className="optchip" aria-pressed={days.includes(d)} onClick={() => toggle(d)}>{WEEKDAY_HE[d]}</button>)}
+        </div>
+      )}
+      {mode === 'weekdays' && !days.length && <p className="muted small">בחר יום אחד או יותר.</p>}
+      {mode === 'times' && (
+        <div className="sched-times"><Stepper label="פעמים בשבוע" value={times} min={1} max={7} onChange={(v) => save({ type: 'times_per_week', times_per_week: v })} /><span className="muted small">פעמים בשבוע, בכל יום שתבחר</span></div>
+      )}
+      <p className="muted small">לוח הזמנים מופיע במסך השבוע. הוא לא יוצר אימונים ולא משנה אימונים שכבר תועדו.</p>
+    </section>
+  );
+}
+
 function PlanDetail({ plan }: { plan: Plan }) {
   const { state, actions } = useStore();
   const today = useToday();
@@ -158,6 +199,8 @@ function PlanDetail({ plan }: { plan: Plan }) {
       </div>
       <p className="template-note"><Icon name="info" size={15} /> <span><b>עריכת תבנית.</b> שינויים כאן חלים על אימונים עתידיים בלבד. אימונים שבוצעו, וגם אימון היום אם כבר התחיל, לא משתנים.</span></p>
 
+      <ScheduleEditor plan={plan} />
+
       <ol className="pex-list">
         {plan.exercises.map((pe, i) => <PlanExerciseRow key={pe.id} plan={plan} index={i} pe={pe} />)}
       </ol>
@@ -167,7 +210,7 @@ function PlanDetail({ plan }: { plan: Plan }) {
         {today ? (
           <p className="muted small">כבר יש אימון להיום ({today.name}), לכן אי אפשר להתחיל נוסף באותו תאריך.</p>
         ) : (
-          <Button variant="primary" onClick={() => { actions.startFromPlan(plan); navigate({ name: 'today' }); }}>התחל אימון מהתוכנית</Button>
+          <Button variant="primary" onClick={() => { actions.startFromPlan(plan); navigate({ name: 'workout', date: state.data.today }); }}>התחל אימון מהתוכנית</Button>
         )}
       </div>
       <p className="plan-summary muted small">{plan.exercises.length} תרגילים · {setsOf(plan)} סטים מתוכננים</p>

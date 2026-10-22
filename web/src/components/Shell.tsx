@@ -8,7 +8,7 @@ import { RestProvider } from './RestTimer';
 import { IS_MOCK } from '../data/source';
 
 const TABS: { tab: Tab; label: string; icon: IconName; route: Parameters<typeof navigate>[0] }[] = [
-  { tab: 'today', label: 'היום', icon: 'today', route: { name: 'today' } },
+  { tab: 'today', label: 'השבוע', icon: 'today', route: { name: 'today' } },
   { tab: 'plans', label: 'תוכניות', icon: 'plans', route: { name: 'plans' } },
   { tab: 'exercises', label: 'תרגילים', icon: 'list', route: { name: 'exercises' } },
   { tab: 'history', label: 'היסטוריה', icon: 'history', route: { name: 'history' } },
@@ -20,11 +20,14 @@ export const useShell = () => useContext(Ctx);
 
 export function HeaderTools() {
   const { openSettings, openDemo } = useShell();
-  const onProgress = useRoute().name === 'progress';
+  const route = useRoute().name;
+  const onProgress = route === 'progress';
+  const onWeight = route === 'weight';
   return (
     <div className="head-tools">
       {IS_MOCK && <IconButton icon="flask" label="כלי הדגמה (פרוטוטיפ)" onClick={openDemo} />}
-      {/* Progress lives in the header, not in the bottom tab bar. */}
+      {/* Weight and Progress live in the header, not in the bottom tab bar. */}
+      <IconButton icon="scale" label="משקל" aria-current={onWeight ? 'page' : undefined} onClick={() => navigate({ name: 'weight' })} />
       <IconButton icon="progress" label="התקדמות" aria-current={onProgress ? 'page' : undefined} onClick={() => navigate({ name: 'progress' })} />
       <IconButton icon="gear" label="הגדרות" onClick={openSettings} />
     </div>

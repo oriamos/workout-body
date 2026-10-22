@@ -4,7 +4,8 @@ import { Icon } from '../components/Icon';
 import type { Toast } from '../state/store';
 import { longDate } from '../lib/format';
 import { newKey, nutritionRepo } from './repository';
-import { fmt, LABEL, UNIT } from './logic';
+import { fmt, itemCountText, LABEL, UNIT } from './logic';
+import { ItemList, PartialBadge } from './parts';
 import { NUTRIENTS, type NutritionEntry } from './types';
 
 type ToastFn = (text: string, tone?: Toast['tone'], action?: Toast['action']) => void;
@@ -36,7 +37,10 @@ function Details({ e, today, selected, onCopied, toast }: { e: NutritionEntry; t
       <dl className="nut-targets">
         {NUTRIENTS.map((k) => <div key={k}><dt>{LABEL[k]}</dt><dd>{e[k] == null ? <span className="muted">חסר</span> : <><Ltr>{fmt(e[k])}</Ltr> <small>{UNIT[k]}</small></>}</dd></div>)}
       </dl>
+      <PartialBadge keys={e.incomplete_values} />
+      {e.items.length > 0 && <ItemList items={e.items} />}
       {e.copied_from != null && <p className="muted small">הועתקה מארוחה קודמת.</p>}
+      {e.items.length > 0 && <p className="muted small">העתקה שומרת את המרכיבים.</p>}
       <div className="nut-copy">
         <Button size="sm" variant="primary" icon="copy" disabled={busy} onClick={() => void copy(today)}>העתקה להיום</Button>
         <label className="nut-copy-date">
@@ -97,7 +101,7 @@ export function BrowseSheet({ open, today, selected, onClose, onCopied, toast }:
               {g.items.map((e) => (
                 <li key={e.id}>
                   <button type="button" className="nut-entry" aria-expanded={openId === e.id} data-entry-id={e.id} onClick={() => setOpenId(openId === e.id ? null : e.id)}>
-                    <span className="nut-entry-name">{e.name}</span>
+                    <span className="nut-entry-main"><span className="nut-entry-name">{e.name}</span>{e.items.length > 0 && <span className="chip nut-item-count">{itemCountText(e.items.length)}</span>}</span>
                     <span className="nut-entry-vals"><span><Ltr>{fmt(e.calories_kcal)}</Ltr> <small>קק״ל</small></span><Icon name={openId === e.id ? 'up' : 'down'} size={16} /></span>
                   </button>
                   {openId === e.id && <Details e={e} today={today} selected={selected <= today ? selected : today} onCopied={onCopied} toast={toast} />}

@@ -9,7 +9,7 @@ const opts = {
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
 for (const [n, css] of Object.entries(opts)) {
   const p = await (await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true })).newPage();
-  await p.goto('http://127.0.0.1:5173/#/today'); await p.waitForSelector('.wv');
+  await p.goto('http://127.0.0.1:5173/#/workout'); await p.waitForSelector('.wv');
   await p.addStyleTag({ content: `:root, :root[data-theme='light'] { ${css} }` });
   await p.evaluate(() => window.scrollTo(0, 330));
   await p.waitForTimeout(300);

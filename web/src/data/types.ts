@@ -75,11 +75,20 @@ export interface PlanExercise {
   rpe: number | null;
 }
 
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+/** When a plan is meant to be done (same shape as the engine's). The week's first day is configurable (default Sunday). */
+export type PlanSchedule =
+  | { type: 'weekdays'; days: Weekday[] }
+  | { type: 'times_per_week'; times_per_week: number };
+
 export interface Plan {
   id: string;
   name: string;
   exercises: PlanExercise[];
   importedAt?: string;
+  /** null or absent = unscheduled. */
+  schedule?: PlanSchedule | null;
 }
 
 export interface AppData {

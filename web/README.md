@@ -61,8 +61,9 @@ can use the token. Do not add `--host` in api mode on an untrusted network.
 | `npm run dev:mock` | in-memory prototype (`VITE_DATA_SOURCE=mock`) |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run seed:api` | load the synthetic seed into a running engine |
-| `npm run test:unit` | unit tests: engine to UI mapping and nutrition helpers (`scripts/unit-*.mjs`) |
+| `npm run test:unit` | unit tests: engine to UI mapping, nutrition and weight helpers, week schedule (`scripts/unit-*.mjs`) |
 | `npm run test:nutrition` | nutrition end-to-end against a real engine, same setup (`scripts/nutrition-flows.mjs`) |
+| `npm run test:weight` | weight end-to-end against a real engine, same setup (`scripts/weight-flows.mjs`) |
 | `npm run test:api` | end-to-end against a real engine: starts `go run ./cmd/training-mcp` on a temp DB and Vite itself, drives Chromium (`scripts/api-flows.mjs`) |
 | `npm run test:mock` | prototype interaction checks; needs `npm run dev:mock` running on :5173 (`scripts/flows.mjs`) |
 
@@ -112,7 +113,9 @@ exercise's first engine video, else the labelled placeholder clip.
 A separate module in `src/nutrition/` with its own `NutritionRepository` (`repository.ts`): the API
 implementation (`apiRepository.ts`, `/api/v1/nutrition/...` through the same proxy) or a deterministic
 in-memory mock (`mockRepository.ts`) under `VITE_DATA_SOURCE=mock`. Pure helpers (`logic.ts`) are
-unit-tested by `scripts/unit-nutrition.mjs`.
+unit-tested by `scripts/unit-nutrition.mjs` (sums, partial totals, scaling); `scripts/nutrition-flows.mjs`
+drives the UI against a real engine. The mock has synthetic meals with ingredients (some values unknown)
+and serves ingredient suggestions from them.
 
 * **Day view** (`#/nutrition/YYYY-MM-DD`; default = the engine's today): previous/next day, a month
   calendar (days with meals marked), a "היום" shortcut and a "לא היום" badge. Calories, protein, carbs
@@ -120,21 +123,91 @@ unit-tested by `scripts/unit-nutrition.mjs`.
   it says "אין יעד" (nothing is invented). Entries without a value add a quiet "חסר ב־N ארוחות". A
   total where every entry lacks the value shows "—", never 0. Totals come from the server (`GET
   /nutrition/days/{date}`).
-* **Add/edit** (Sheet): name plus four optional numbers. Empty means "not provided" and is omitted
-  (on edit, cleared with `null`). Inline validation (number, not negative, ≤ 20,000 kcal, ≤ 2,000 g).
-  Typed values are kept when a save fails. New entries send an `Idempotency-Key`, reused when the same
-  values are retried. Edits are merge-patches with `If-Match`. Delete asks for confirmation. Food
-  cannot be logged for a future day (the engine rejects it).
+* **Meals made of ingredients**: a meal is a name plus a list of ingredients (מרכיבים), each with
+  its own name, optional amount in grams and optional kcal / protein / carbs / fat. The meal's values
+  are the server-computed sums: each value is the sum of the ingredients that provide it, "—" when
+  none does, and when only some do the total is partial (`incomplete_values`), shown as a "סכום
+  חלקי" badge in the list and "חלקי: חסר ב־N מרכיבים" in the form. A partial meal also counts in the
+  day's "חסר ב־N ארוחות". Each meal row in the day view expands to its ingredients.
+* **Add/edit** (Sheet): new meals open in ingredients mode with live totals at the bottom (same rules
+  as the server). `POST` sends `items` and never the meal-level values; an edit `PATCH`es the whole
+  `items` list when it changed. Ingredient names autocomplete from `GET /nutrition/items` (used
+  before, latest values); picking one fills its values, and when it has an amount and you type a
+  different one the values are scaled (whole kcal, 0.1 g) with a "הותאם לכמות" hint; changing the
+  amount later rescales from the picked values (editing a value by hand stops that). The
+  "ארוחה פשוטה בלי מרכיבים" toggle shows the old four fields; on a meal with ingredients it converts
+  it (`items: []`, the sums stay as editable values). A simple meal offers "פירוק למרכיבים". Empty
+  means "not provided" and is omitted or sent as `null`, never 0. Inline validation (number, not
+  negative, ≤ 20,000 kcal, ≤ 2,000 g, amount 0–5,000 g, ≤ 50 ingredients). Typed values are kept when
+  a save fails. New entries send an `Idempotency-Key`, reused when the same values are retried. Edits
+  are merge-patches with `If-Match`. Delete asks for confirmation. Food cannot be logged for a future
+  day (the engine rejects it).
 * **Targets** (Sheet): shows the targets in effect on the selected day and their `effective_from`,
   then changes them from that day forward (`PUT /nutrition/targets/{date}`, `If-Match` = revision in
   effect, `"0"` when none). Earlier days keep their targets. An empty field removes a target.
-* **Browse** (Sheet): search by name, from/to dates, details, and copy to today or another date
-  (`POST /nutrition/entries/{id}/copy` with an idempotency key).
+* **Browse** (Sheet): search by name, from/to dates, details (with the ingredient count and list), and
+  copy to today or another date (`POST /nutrition/entries/{id}/copy` with an idempotency key; the copy
+  keeps the ingredients).
 * **Changes made elsewhere**: the visible day is polled every 5 s while the tab is visible. Open forms
   keep their own values. A `412` keeps your typed values, shows the server's current values, and
   makes another save an explicit overwrite.
 
 Nutrition data lives on the engine only; nothing nutrition-related is kept in localStorage.
+
+## Week (home, `#/today`)
+
+The first tab, "השבוע", is this week: seven days from the week's first day (Sunday→Saturday by
+default; the UI takes the first day from the engine's default `GET /schedule` week, `days[0].weekday`,
+so it follows `WORKOUT_WEEK_START`). Each day shows the workout done (name, completed sets, volume)
+and the plans scheduled for it with a status chip (בוצע / התחיל / פוספס / היום / מתוכנן, the engine's
+`done / started / missed / due / upcoming`). Today is highlighted (`aria-current="date"`) and carries
+the main action: "פתח את האימון של היום" when a workout exists, otherwise "התחל אימון · <plan>" with
+the plan scheduled for today (or a still-due weekly-frequency plan) preselected, a choice when several
+are due, and "אימון אחר" for the existing chooser. A summary shows workouts done vs. planned this week
+and one line per frequency plan ("Upper/Lower: 2 מתוך 3 השבוע, נותר 1"). Arrows move a week back or
+forward (`GET /schedule?from&to`, `#/today/<first day>`), "השבוע" returns to the current week. A past
+day opens that workout (History), a future day links to its plan. With no plan scheduled the screen
+explains schedules and links to Plans, where each plan has a "לוח זמנים" editor (none / fixed days /
+times per week; saved with `PUT /plans/{id}/schedule`).
+
+The logging view moved to `#/workout/<date>` (`#/workout` = today) with a back button to the week;
+logging, polling and conflict handling are unchanged. The view is re-read from the engine whenever a
+workout of the shown week changes in the UI (own saves, or the assistant's picked up by polling). In
+the mock the same view is computed from the in-memory data (`src/data/schedule.ts`, unit-tested by
+`scripts/unit-schedule.mjs`); the seed gives Upper A/Lower A/Upper B/Lower B fixed days (Mon/Tue/Thu/Fri)
+and Full Body once a week.
+
+## Weight (`#/weight`)
+
+Reached from the scale icon in the page header (next to Progress; it is not a bottom tab).
+`src/weight/WeighInCard.tsx` exports a small self-contained "שקילה היום" card (today's weight, or a
+"רישום שקילה" button; both open `#/weight`) for a home screen to place; the week screen (`#/today`) shows it for the current week. A separate module in `src/weight/` with its own
+`WeightRepository` (`repository.ts`): the API implementation (`apiRepository.ts`, `/api/v1/weight/...`
+through the same proxy) or a deterministic in-memory mock (`mockRepository.ts`: about ten weeks with
+skipped days and one empty week) under `VITE_DATA_SOURCE=mock`. Pure helpers (`logic.ts`, including a
+copy of the engine's weekly computation used by the mock) are unit-tested by `scripts/unit-weight.mjs`.
+
+* **Quick log**: one weigh-in per date. Weight in kg (`inputmode=decimal`; "81,4" works; 20–400),
+  optional note (≤ 200), and a date picker for past dates (max = today). If today already has a
+  weigh-in it is shown with "עריכה". Saving is `PUT /weight/entries/{date}` with `If-Match` = the
+  revision being replaced, or `"0"` when the date had none, so a weigh-in logged elsewhere in the
+  meantime is never overwritten silently. Choosing a date that already has one prefills it and says
+  saving will update it.
+* **Headline**: this week's average (Sunday→Saturday by default; the week bounds come from the API, with "N שקילות") and the change vs last week in kg
+  and %, as `GET /weight/trend` reports them, with an arrow and "עלייה / ירידה / ללא שינוי משמעותי"
+  in neutral colors (no red/green judgement). When the engine has no comparison (either week without
+  a weigh-in) it says "אין מספיק נתונים להשוואה".
+* **Chart**: daily weigh-ins as points plus the weekly average as a line (a week without weigh-ins is a
+  gap); range 4/8/12/26 weeks (remembered per browser).
+* **By week** table (newest first): range, average, days logged, min–max, change vs previous week.
+* **Recent weigh-ins** in the range with edit (Sheet) and delete (inline confirmation, `If-Match`).
+* A caption explains that daily weight fluctuates (water, salt, food) and the weekly average is the
+  meaningful signal.
+* **Changes made elsewhere**: the trend is polled every 5 s while the tab is visible. Open forms keep
+  their values; a `412` shows the server's current value in Hebrew, keeps what you typed, and makes
+  another save an explicit overwrite.
+
+Weight data lives on the engine only (the chart range is the only thing kept in localStorage).
 
 ## Limitations
 
@@ -142,7 +215,7 @@ Nutrition data lives on the engine only; nothing nutrition-related is kept in lo
   the workout; elsewhere the summary shows "—".
 * **Unplanned exercises without a completed set, and notes on exercises without a prescription,
   stay local** to this browser until (for exercises) the first set is completed.
-* **Polling, not push**: remote changes appear within ~5 s, only for today's workout (and the nutrition day on screen); other
+* **Polling, not push**: remote changes appear within ~5 s, only for today's workout (and the nutrition day or weight trend on screen); other
   days refresh on reload. Changes to an existing prescription's targets made elsewhere also appear
   only after reload.
 * Set videos are loaded for today's workout only ("הסרטונים שלי" shows today's), one video per set.

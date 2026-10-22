@@ -11,8 +11,57 @@ p.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
 const ok = (c, msg) => console.log(c ? 'PASS' : 'FAIL', msg);
 const shot = (n) => p.screenshot({ path: path.join(out, n + '.png') });
 const row = (id) => p.locator(`[data-set-id="${id}"]`);
+const days = () => p.locator('.week-days > .day');
+const dayCard = (date) => p.locator(`.week-days > .day[data-date="${date}"]`);
+const planStatus = (date, name) => dayCard(date).locator(`.day-plan[data-plan="${name}"]`).getAttribute('data-status');
 await p.goto('http://127.0.0.1:5173/#/today');
+await p.waitForSelector('.week-days > .day');
+
+// 0. home = this week: 7 days Sunday -> Saturday, schedule statuses, today highlighted
+const dates = await days().evaluateAll((els) => els.map((e) => `${e.dataset.date}:${e.dataset.weekday}`));
+ok(dates.join(',') === '2026-10-18:sun,2026-10-19:mon,2026-10-20:tue,2026-10-21:wed,2026-10-22:thu,2026-10-23:fri,2026-10-24:sat', `week shows 7 days Sun 18 -> Sat 24 Oct (${dates.join(',')})`);
+ok((await p.locator('.nav-item[aria-current="page"]').innerText()).includes('השבוע'), 'bottom tab is "השבוע"');
+ok((await p.locator('h1').innerText()).replace(/[\u2066-\u2069]/g, '') === '18–24 באוקטובר', 'header shows the week range');
+ok(await p.locator('.day[aria-current="date"]').getAttribute('data-date') === '2026-10-21', 'today (Wed 21) is aria-current and highlighted');
+ok(await planStatus('2026-10-19', 'Upper A') === 'done' && (await dayCard('2026-10-19').locator('.chip').innerText()) === 'בוצע', 'Upper A on Monday: done (בוצע)');
+ok(await planStatus('2026-10-20', 'Lower A') === 'done', 'Lower A on Tuesday: done');
+ok(await planStatus('2026-10-22', 'Upper B') === 'upcoming' && (await dayCard('2026-10-22').locator('.chip').innerText()) === 'מתוכנן', 'Upper B on Thursday: upcoming (מתוכנן)');
+ok(await planStatus('2026-10-23', 'Lower B') === 'upcoming', 'Lower B on Friday: upcoming');
+ok((await dayCard('2026-10-19').locator('.day-stats').innerText()).includes('סטים'), 'a past day shows sets done and volume');
+ok((await p.locator('.freq').innerText()).includes('Full Body') && (await p.locator('.freq').innerText()).includes('1 מתוך 1'), 'weekly frequency line for Full Body');
+ok((await p.locator('.week-count').innerText()).includes('מתוך 5'), 'week summary: done / planned');
+await shot('w1-week');
+// prev / next week
+await p.getByRole('button', { name: 'שבוע קודם' }).click();
+await p.waitForSelector('.day[data-date="2026-10-11"]');
+ok((await days().first().getAttribute('data-date')) === '2026-10-11' && (await days().last().getAttribute('data-date')) === '2026-10-17', 'previous week: Sun 11 -> Sat 17');
+for (let i = 0; i < 2; i++) await p.getByRole('button', { name: 'שבוע קודם' }).click();
+await p.waitForSelector('.day[data-date="2026-09-27"]');
+ok(await planStatus('2026-10-02', 'Lower B') === 'missed' && (await dayCard('2026-10-02').locator('.chip').innerText()) === 'פוספס', 'a skipped scheduled day shows פוספס (Fri 2 Oct)');
+await p.getByRole('button', { name: 'השבוע', exact: true }).click();
+await p.waitForSelector('.day[data-date="2026-10-18"]');
+ok(await p.locator('.day[aria-current="date"]').count() === 1, '"השבוע" shortcut returns to the current week');
+await p.getByRole('button', { name: 'שבוע הבא' }).click();
+await p.waitForSelector('.day[data-date="2026-10-25"]');
+ok(await planStatus('2026-10-26', 'Upper A') === 'upcoming' && await p.locator('.day[aria-current="date"]').count() === 0, 'next week: Sun 25 -> Sat 31, Upper A upcoming on Monday');
+await p.getByRole('button', { name: 'השבוע', exact: true }).click();
+await p.waitForSelector('.day[data-date="2026-10-18"]');
+// a past day opens its workout in History
+await dayCard('2026-10-19').locator('.day-link').click();
+await p.waitForSelector('.hist-detail-col .ex');
+ok(p.url().endsWith('#/history/2026-10-19'), 'tapping a past day opens that workout');
+await p.goBack();
+await p.waitForSelector('.week-days > .day');
+// a future day links to its plan
+await dayCard('2026-10-22').getByRole('link', { name: 'Upper B' }).click();
+await p.waitForSelector('.plan-detail');
+ok(p.url().endsWith('#/plans/upper-b'), 'a future day links to the planned plan');
+await p.goBack();
+await p.waitForSelector('.week-days > .day');
+// open today's workout
+await p.getByRole('button', { name: 'פתח את האימון של היום' }).click();
 await p.waitForSelector('.ex');
+ok(p.url().endsWith('#/workout/2026-10-21'), "today's workout opens at #/workout/2026-10-21");
 
 // 1. inline edit: bench set 3 reps -> 6 via typing; blur commits
 const s3 = row('2026-10-21-bench-2');
@@ -83,6 +132,25 @@ await p.keyboard.press('Escape');
 await p.waitForTimeout(300);
 await shot('f7-empty');
 ok(await p.locator('.today-empty').count() === 1, 'empty state');
+// back to the week: nothing logged today, so the card offers to start the plan still due this week
+await p.getByRole('button', { name: 'חזרה לשבוע' }).click();
+await p.waitForSelector('.week-days > .day');
+const startBtn = dayCard('2026-10-21').getByRole('button', { name: /התחל אימון/ });
+ok(await startBtn.count() === 1 && (await startBtn.innerText()).includes('Full Body'), 'back to week; today offers "התחל אימון · Full Body" (frequency plan still due)');
+await shot('w2-start');
+await startBtn.click();
+await p.waitForSelector('.ex');
+ok(p.url().endsWith('#/workout/2026-10-21') && (await p.locator('.routine').innerText()).includes('Full Body'), 'starting from the week creates today\'s workout from that plan and opens it');
+const firstRow = p.locator('section.ex .set').first();
+await firstRow.locator('.cell-weight').fill('50');
+await firstRow.locator('.cell-reps').fill('5');
+await firstRow.locator('.check').click();
+ok((await firstRow.locator('.check').getAttribute('aria-pressed')) === 'true', 'logging a set in the opened workout works');
+if (await p.locator('.rest-x').count()) await p.locator('.rest-x').click();
+await p.getByRole('button', { name: 'חזרה לשבוע' }).click();
+await p.waitForSelector('.week-days > .day');
+const tStats = await dayCard('2026-10-21').locator('.day-stats').innerText();
+ok(tStats.startsWith('סט אחד'), `the week reflects the logged set (${tStats.replace(/\n/g, ' ')})`);
 await p.locator('button[aria-label^="כלי הדגמה"]').click();
 await p.getByRole('radio', { name: 'הושלם' }).click();
 await p.keyboard.press('Escape');
@@ -137,5 +205,14 @@ await p.getByRole('button', { name: 'ייבא תוכנית' }).click();
 await p.waitForSelector('.plan-detail');
 await shot('f14-imported');
 ok((await p.locator('.plan-title-input').inputValue()) === 'Push Day', 'imported plan opened');
+// 11. plan schedule editor drives the week
+await p.goto('http://127.0.0.1:5173/#/plans/upper-b');
+await p.reload();
+await p.waitForSelector('.sched');
+await p.getByRole('button', { name: 'שבת', exact: true }).click();
+ok((await p.getByRole('button', { name: 'שבת', exact: true }).getAttribute('aria-pressed')) === 'true', 'schedule editor: Saturday added to Upper B');
+await p.locator('.nav-item', { hasText: 'השבוע' }).click();
+await p.waitForSelector('.week-days > .day');
+ok(await planStatus('2026-10-24', 'Upper B') === 'upcoming' && await planStatus('2026-10-22', 'Upper B') === 'upcoming', 'the week shows Upper B on Thursday and Saturday');
 console.log('errors:', errs.length ? errs : 'none');
 await b.close();

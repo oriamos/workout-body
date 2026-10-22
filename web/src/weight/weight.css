@@ -1,0 +1,75 @@
+/* Weight module. App tokens and existing patterns (glass-panel, chart-block, numfield, scope-note).
+   Direction of change is shown with an arrow and words in neutral colors: no "good"/"bad" tint. */
+.wt-grid { display: grid; gap: 14px; align-items: start; padding-bottom: 16px; }
+.wt-col { display: grid; gap: 14px; min-width: 0; }
+@media (min-width: 900px) {
+  .wt-grid { grid-template-columns: 360px minmax(0, 1fr); gap: 24px; }
+}
+
+.wt-form { gap: 12px; margin-top: 10px; }
+.wt-form-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.wt-form-row:has(> :only-child) { grid-template-columns: minmax(0, 1fr); }
+.wt-weight input { font-size: 22px; height: 52px; }
+.wt-form input::placeholder { color: var(--text-3); font-weight: 400; opacity: 0.7; }
+.wt-date input { font-size: 15px; font-weight: 600; height: 52px; padding-inline: 8px; }
+.wt-note input { text-align: start; padding-inline: 12px; font-size: 15px; font-weight: 500; }
+.wt-date-note { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: var(--r-md); background: var(--s2); color: var(--text); font-size: 14px; }
+.wt-date-note .icon { color: var(--text-3); flex: none; }
+.wt-form-msg { align-items: flex-start; }
+.wt-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.wt-sheet-date { margin-bottom: 4px; }
+
+.wt-today { display: grid; gap: 6px; margin-top: 8px; }
+.wt-today-val { font-size: 15px; color: var(--text-3); }
+.wt-today-kg { font-size: 34px; font-weight: 800; color: var(--text); letter-spacing: -0.02em; }
+.wt-today-note { color: var(--text-2); font-size: 14px; overflow-wrap: anywhere; }
+.wt-today-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+
+.wt-headline { display: grid; gap: 6px; }
+.wt-hl-range { font-weight: 400; font-size: 13px; margin-inline-start: 4px; }
+.wt-avg-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.wt-avg { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; }
+.wt-avg-row .unit { color: var(--text-3); font-size: 15px; }
+.wt-count { margin-inline-start: 8px; padding: 2px 9px; border-radius: 999px; background: var(--s2); color: var(--text-2); font-size: 12.5px; font-weight: 600; }
+.wt-change { display: flex; align-items: center; gap: 8px; font-size: 14.5px; color: var(--text); }
+.wt-dir { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; background: var(--s2); color: var(--text-2); flex: none; }
+.wt-latest { margin-top: 2px; }
+.wt-caption { padding-inline: 2px; }
+
+.chart .series-2 { fill: none; stroke: var(--chart-1); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.chart .pt-2 { fill: var(--chart-1); }
+.wt-chart .chart .pt { stroke: var(--text-3); stroke-width: 1.6; }
+.wt-chart .chart .pt.sel { fill: var(--text-2); stroke: var(--pt-fill); }
+.wt-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--text-2); font-size: 12.5px; }
+.wt-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.wt-legend .lg-dot { fill: var(--pt-fill); stroke: var(--text-3); stroke-width: 1.6; }
+.wt-legend .lg-line { stroke: var(--chart-1); stroke-width: 2.5; stroke-linecap: round; }
+.wt-legend .lg-sq { fill: var(--chart-1); }
+
+.wt-table-wrap { overflow-x: auto; margin: 8px -4px 8px; }
+.wt-weeks { width: 100%; border-collapse: collapse; font-size: 14px; }
+.wt-weeks th, .wt-weeks td { padding: 8px 6px; text-align: start; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.wt-weeks thead th { color: var(--text-3); font-size: 12.5px; font-weight: 600; }
+.wt-weeks tbody th { font-weight: 600; }
+.wt-weeks tbody tr:last-child > * { border-bottom: 0; }
+.wt-num { font-variant-numeric: tabular-nums; }
+@media (max-width: 420px) { .wt-weeks { font-size: 13px; } .wt-weeks th, .wt-weeks td { padding: 7px 4px; } }
+
+.wt-list { display: grid; margin-top: 4px; }
+.wt-entry { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; min-height: 52px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.wt-list li:last-child { border-bottom: 0; }
+.wt-entry-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; flex: 1; }
+.wt-entry-date { color: var(--text-2); font-size: 14px; min-width: 64px; }
+.wt-entry-kg { font-weight: 700; font-variant-numeric: tabular-nums; }
+.wt-entry-kg small { color: var(--text-3); font-weight: 500; }
+.wt-entry-note { color: var(--text-3); font-size: 13px; overflow-wrap: anywhere; flex-basis: 100%; }
+.wt-entry-actions { display: flex; gap: 2px; }
+.wt-confirm { display: flex; align-items: center; gap: 6px; }
+.wt-row-msg { flex-basis: 100%; align-items: flex-start; }
+
+/* Today screen entry point */
+.wt-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; }
+.wt-card-text { display: grid; gap: 2px; min-width: 0; }
+.wt-card-label { color: var(--text-2); font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.wt-card-val { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+.wt-card-val .unit { font-size: 13px; font-weight: 500; color: var(--text-3); }

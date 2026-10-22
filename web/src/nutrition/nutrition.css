@@ -52,3 +52,59 @@
 .nut-range input, .nut-copy-date input { height: 40px; border-radius: 10px; background: var(--s2); border: 1px solid var(--line-2); padding: 0 10px; color: var(--text); }
 .nut-detail { display: grid; gap: 10px; padding: 8px 6px 14px; }
 .nut-copy { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* Meals made of ingredients */
+.nut-entry-li { border-bottom: 1px solid var(--line); }
+.nut-list li.nut-entry-li:last-child { border-bottom: 0; }
+.nut-entry-li .nut-entry { border-bottom: 0; }
+.nut-entry-main { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.nut-partial { height: 22px; font-size: 12px; }
+.nut-partial-mark { color: var(--warn); font-weight: 700; margin-inline-start: 1px; }
+.nut-item-count { height: 22px; font-size: 12px; }
+.nut-items-toggle { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; margin: -6px 2px 6px; padding: 0 8px; border-radius: 8px; color: var(--text-2); font-size: 13px; font-weight: 600; }
+.nut-items-toggle:hover { background: var(--s2); color: var(--text); }
+.nut-items { display: grid; margin: 0 6px 10px; padding: 4px 10px; border-radius: 10px; background: var(--s2); }
+.nut-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 13.5px; border-bottom: 1px solid var(--line); }
+.nut-item:last-child { border-bottom: 0; }
+.nut-item-name { min-width: 0; overflow-wrap: anywhere; }
+.nut-item .nut-entry-vals { gap: 8px; font-size: 12.5px; }
+@media (max-width: 520px) {
+  .nut-entry { flex-wrap: wrap; }
+  .nut-item { flex-wrap: wrap; gap: 2px 10px; }
+}
+
+.nut-mode { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); font-weight: 600; cursor: pointer; justify-self: start; min-height: 32px; }
+.nut-mode input { width: 18px; height: 18px; accent-color: var(--accent); }
+.nut-item-rows { display: grid; gap: 10px; list-style: none; padding: 0; margin: 0; }
+.nut-item-row { display: grid; gap: 8px; padding: 10px; border-radius: var(--r-md); background: var(--s2); border: 1px solid var(--line); }
+.nut-item-row-head { display: flex; gap: 6px; align-items: start; }
+.nut-item-remove { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; color: var(--text-3); }
+.nut-item-remove:hover { background: var(--s1); color: var(--danger); }
+.nut-combo { position: relative; flex: 1; min-width: 0; display: grid; gap: 4px; }
+.nut-combo input, .nut-mini input { height: 40px; border-radius: 10px; background: var(--s1); border: 1px solid var(--line-2); color: var(--text); outline: 0; min-width: 0; width: 100%; }
+.nut-combo input { padding-inline: 12px; font-weight: 600; text-align: start; }
+.nut-combo input:focus, .nut-mini input:focus { border-color: var(--accent); outline: 2px solid color-mix(in oklch, var(--accent) 35%, transparent); }
+.nut-combo input.invalid, .nut-mini input.invalid { border-color: var(--danger); background: var(--danger-soft); }
+.nut-suggest { position: absolute; inset-inline: 0; top: 44px; z-index: 5; display: grid; max-height: 240px; overflow-y: auto; padding: 4px; margin: 0; list-style: none; border-radius: 12px; background: var(--bg, var(--s1)); border: 1px solid var(--line-2); box-shadow: 0 10px 30px rgb(0 0 0 / 0.25); }
+.nut-suggest li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.nut-suggest li:hover, .nut-suggest li.active { background: var(--s2); }
+.nut-suggest-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.nut-suggest-meta { color: var(--text-3); font-size: 12.5px; white-space: nowrap; }
+.nut-item-fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 380px) { .nut-item-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.nut-mini { display: grid; gap: 3px; font-size: 12px; color: var(--text-2); font-weight: 600; }
+.nut-mini input { text-align: center; font-weight: 700; font-size: 15px; padding: 0 4px; }
+.nut-scaled { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-text); font-size: 12.5px; font-weight: 600; }
+.nut-item-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.nut-totals { padding: 12px; border-radius: var(--r-md); border: 1px solid var(--line-2); }
+.nut-totals-title { font-size: 14px; margin: 0 0 8px; }
+.nut-totals-title .muted { font-weight: 400; }
+.nut-totals dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+@media (max-width: 520px) { .nut-totals dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.nut-total dt { color: var(--text-2); font-size: 12.5px; }
+.nut-total dd { margin: 0; font-weight: 700; }
+.nut-total dd small { font-weight: 500; color: var(--text-3); }
+.nut-total-val { font-size: 17px; }
+.nut-total .nut-total-partial { color: var(--warn); font-size: 12px; font-weight: 600; }
+.nut-split { justify-self: start; }
+.nut-convert-note { align-items: flex-start; }

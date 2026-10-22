@@ -6,8 +6,9 @@ import { Icon } from '../components/Icon';
 import { addDays, longDate } from '../lib/format';
 import { navigate } from '../lib/router';
 import { nutritionRepo } from './repository';
-import { consumedText, fmt, LABEL, missingNote, progress, SHORT_UNIT, statusText, UNIT } from './logic';
+import { consumedText, fmt, itemCountText, LABEL, missingNote, progress, statusText, UNIT } from './logic';
 import { NUTRIENTS, type NutritionDay, type NutritionEntry } from './types';
+import { ItemList, PartialBadge, Vals } from './parts';
 import { EntrySheet } from './EntrySheet';
 import { TargetsSheet } from './TargetsSheet';
 import { CalendarSheet } from './CalendarSheet';
@@ -30,7 +31,7 @@ function Summary({ day }: { day: NutritionDay }) {
             <div className="nut-row-head">
               <b className="nut-label">{LABEL[k]}</b>
               <span className="nut-amount">
-                <Ltr className="nut-consumed">{consumedText(s, day.entry_count)}</Ltr>
+                <Ltr className="nut-consumed">{consumedText(s, day.entries, k)}</Ltr>
                 {s.target != null && <span className="nut-of"> / <Ltr>{fmt(s.target)}</Ltr></span>}
                 <span className="nut-unit"> {UNIT[k]}</span>
               </span>
@@ -51,18 +52,25 @@ function Summary({ day }: { day: NutritionDay }) {
   );
 }
 
-function EntryRow({ e, onOpen }: { e: NutritionEntry; onOpen: () => void }) {
+function EntryRow({ e, onOpen, expanded, onToggle }: { e: NutritionEntry; onOpen: () => void; expanded: boolean; onToggle: () => void }) {
+  const n = e.items.length;
   return (
-    <li>
+    <li className="nut-entry-li" data-entry={e.id}>
       <button type="button" className="nut-entry" onClick={onOpen} data-entry-id={e.id}>
-        <span className="nut-entry-name">{e.name}</span>
-        <span className="nut-entry-vals">
-          <span><Ltr>{fmt(e.calories_kcal)}</Ltr> <small>{SHORT_UNIT.calories_kcal}</small></span>
-          <span><small>ח׳</small> <Ltr>{fmt(e.protein_g)}</Ltr></span>
-          <span><small>פ׳</small> <Ltr>{fmt(e.carbs_g)}</Ltr></span>
-          <span><small>ש׳</small> <Ltr>{fmt(e.fat_g)}</Ltr></span>
+        <span className="nut-entry-main">
+          <span className="nut-entry-name">{e.name}</span>
+          <PartialBadge keys={e.incomplete_values} />
         </span>
+        <Vals v={e} partial={e.incomplete_values} />
       </button>
+      {n > 0 && (
+        <>
+          <button type="button" className="nut-items-toggle" aria-expanded={expanded} onClick={onToggle}>
+            <Icon name={expanded ? 'up' : 'down'} size={14} /> {itemCountText(n)}
+          </button>
+          {expanded && <ItemList items={e.items} />}
+        </>
+      )}
     </li>
   );
 }
@@ -79,6 +87,8 @@ export function NutritionScreen({ date }: { date?: string }) {
   const [targetsOpen, setTargetsOpen] = useState(false);
   const [calOpen, setCalOpen] = useState(false);
   const [browseOpen, setBrowseOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const toggleItems = (id: number) => setExpanded((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const last = useRef('');
   const current = useRef(selected);
   current.current = selected;
@@ -167,7 +177,7 @@ export function NutritionScreen({ date }: { date?: string }) {
               {future ? 'אפשר להגדיר יעדים מראש.' : 'הוסף ארוחה כאן, או ספר לעוזר מה אכלת.'}
             </EmptyState>
           ) : (
-            <ul className="nut-list">{day.entries.map((e) => <EntryRow key={e.id} e={e} onOpen={() => openEntry({ mode: 'edit', entry: e })} />)}</ul>
+            <ul className="nut-list">{day.entries.map((e) => <EntryRow key={e.id} e={e} expanded={expanded.has(e.id)} onToggle={() => toggleItems(e.id)} onOpen={() => openEntry({ mode: 'edit', entry: e })} />)}</ul>
           )}
           {loadErr && <p className="note note-warn"><Icon name="alert" size={14} /> {loadErr}</p>}
         </section>

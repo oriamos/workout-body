@@ -2,7 +2,7 @@
 // API: /api/v1/nutrition/... through the same-origin proxy (token added by the proxy).
 // Mock (VITE_DATA_SOURCE=mock): deterministic synthetic data in memory.
 import { IS_MOCK } from '../data/source';
-import type { EntryFilter, EntryInput, EntryPatch, NutritionDay, NutritionEntry, NutritionTargets, TargetPatch } from './types';
+import type { EntryFilter, EntryInput, EntryPatch, ItemSuggestion, NutritionDay, NutritionEntry, NutritionTargets, TargetPatch } from './types';
 import { createApiNutrition } from './apiRepository';
 import { createMockNutrition } from './mockRepository';
 
@@ -17,6 +17,8 @@ export interface NutritionRepository {
   update(id: number, patch: EntryPatch, revision: number): Promise<NutritionEntry>;
   remove(id: number, revision: number): Promise<void>;
   copy(id: number, date: string, key: string): Promise<NutritionEntry>;
+  /** Ingredients used before (latest values of each name), most recent first, optionally matching `q`. */
+  suggestItems(q: string, limit?: number): Promise<ItemSuggestion[]>;
   /** Targets in effect on a date. */
   targets(date: string): Promise<NutritionTargets>;
   /** Change targets from `date` forward. `revision` = revision of the targets in effect on that date (0 when none). */

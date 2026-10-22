@@ -1,0 +1,72 @@
+/* ---------- week (home) ---------- */
+.week-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 -6px 10px; }
+.week-nav-label { font-size: 14px; font-weight: 600; color: var(--text-3); }
+.week-warn { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--warn); background: var(--warn-soft); border-radius: var(--r-md); padding: 8px 12px; font-size: 13.5px; margin-bottom: 10px; }
+.week-grid { display: grid; gap: 14px; align-items: start; }
+.week-side { display: grid; gap: 12px; }
+.week-summary { display: grid; gap: 4px; }
+.week-count { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.week-summary .meter { margin-top: 8px; }
+.freq-list { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 14px; color: var(--text-2); }
+.freq { display: flex; align-items: flex-start; gap: 7px; line-height: 1.45; }
+.freq .icon { margin-top: 3px; color: var(--text-3); flex: none; }
+.freq-done { color: var(--accent-text); font-weight: 600; }
+.week-empty { gap: 8px; justify-items: start; }
+.week-empty-title { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; }
+.week-empty-title .icon { color: var(--accent-text); }
+.week-empty p { color: var(--text-2); font-size: 14.5px; line-height: 1.5; }
+
+.week-days { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.week-extra:empty { display: none; }
+.day {
+  display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: start;
+  padding: 12px 12px 12px 14px; border-radius: 20px;
+  background: var(--s1); border: 1px solid var(--line);
+}
+.day.is-past { background: transparent; }
+.day.is-today {
+  background: var(--glass-strong); border-color: var(--glass-edge);
+  box-shadow: var(--glass-hi), 0 0 0 2px var(--accent), var(--glass-shadow);
+  padding-block: 14px;
+}
+.day-date { display: grid; justify-items: center; line-height: 1.1; padding-top: 2px; }
+.day-date b { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+.day-name { font-size: 12.5px; color: var(--text-3); font-weight: 600; }
+.day.is-today .day-name { color: var(--accent-text); font-weight: 700; }
+.day.is-past .day-date b { color: var(--text-2); }
+.day-body { display: grid; gap: 6px; min-width: 0; align-content: center; min-height: 44px; }
+.day-link { display: grid; gap: 4px; text-decoration: none; color: inherit; border-radius: 12px; margin: -6px; padding: 6px; transition: background-color 120ms ease; }
+.day-link:hover { background: oklch(1 0 0 / 0.4); }
+:root[data-theme='dark'] .day-link:hover { background: oklch(1 0 0 / 0.07); }
+.day-plans { display: grid; gap: 6px; }
+.day-plan { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 700; font-size: 15.5px; }
+.day-plan a { text-decoration: none; }
+.day-plan a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.day-plan .muted { font-weight: 500; }
+.day-stats { display: flex; align-items: center; gap: 4px; color: var(--text-2); font-size: 13.5px; }
+.day-go { margin-inline-start: auto; color: var(--text-3); }
+.day-rest { color: var(--text-3); font-size: 14px; }
+.day-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.day-actions .btn-primary { flex: 1 1 auto; }
+.day-pick { display: grid; justify-items: stretch; }
+.day-pick-title { font-size: 13px; font-weight: 600; color: var(--text-3); }
+.day-pick .btn-ghost { justify-self: start; }
+
+@media (min-width: 880px) {
+  .week-grid { grid-template-columns: minmax(0, 1fr) 320px; grid-template-areas: 'days side' 'days extra' 'days .'; grid-template-rows: auto auto 1fr; gap: 14px 32px; }
+  .week-days { grid-area: days; }
+  .week-side { grid-area: side; }
+  .week-extra { grid-area: extra; }
+  .week-nav { max-width: calc(100% - 352px); }
+  .day-actions .btn-primary { flex: 0 0 auto; }
+}
+
+/* The workout view opened from the week keeps its back button on wide screens too. */
+.workout-page .backbtn { display: grid; }
+
+/* plan schedule editor (Plans screen) */
+.sched { display: grid; gap: 8px; justify-items: start; padding: 10px 0 4px; }
+.sched-title { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 700; }
+.sched-title .icon { color: var(--text-3); }
+.sched-times { display: flex; align-items: center; gap: 10px; }
+.sched-times .stepper { width: 150px; }

@@ -25,7 +25,7 @@ export function DemoSheet({ open, onClose }: { open: boolean; onClose: () => voi
   }
   function fire(u: ExternalUpdate | null, note: string) {
     onClose();
-    navigate({ name: 'today' });
+    navigate({ name: 'workout', date: state.data.today });
     if (!u) return actions.toast(note);
     window.setTimeout(() => actions.emitExternal(u), 350);
   }
@@ -67,7 +67,7 @@ export function DemoSheet({ open, onClose }: { open: boolean; onClose: () => voi
 
         <section className="form-block">
           <h3>מצב אימון היום</h3>
-          <Segmented label="מצב אימון היום" value={scenario} onChange={(v) => { setScenario(v); actions.setScenario(v); navigate({ name: 'today' }); }} options={SCENARIOS.map((s) => ({ value: s, label: LABEL[s] }))} />
+          <Segmented label="מצב אימון היום" value={scenario} onChange={(v) => { setScenario(v); actions.setScenario(v); navigate({ name: 'workout', date: state.data.today }); }} options={SCENARIOS.map((s) => ({ value: s, label: LABEL[s] }))} />
         </section>
 
         <section className="form-block">
@@ -80,7 +80,7 @@ export function DemoSheet({ open, onClose }: { open: boolean; onClose: () => voi
                 const c = correction();
                 if (!c) return;
                 onClose();
-                navigate({ name: 'today' });
+                navigate({ name: 'workout', date: state.data.today });
                 actions.setDraftDirect(c.s.id, 'reps', '6');
                 window.setTimeout(() => actions.emitExternal(c.u), 1200);
               }}
@@ -98,8 +98,8 @@ export function DemoSheet({ open, onClose }: { open: boolean; onClose: () => voi
             <span>השמירה הבאה תיכשל</span>
           </label>
           <div className="demo-grid">
-            <Button onClick={() => { mockControls.slowLoad = true; onClose(); navigate({ name: 'today' }); actions.reload(); window.setTimeout(() => (mockControls.slowLoad = false), 100); }}>טעינה איטית</Button>
-            <Button onClick={() => { mockControls.failNextLoad = true; onClose(); navigate({ name: 'today' }); actions.reload(); }}>כשל טעינה</Button>
+            <Button onClick={() => { mockControls.slowLoad = true; onClose(); navigate({ name: 'workout', date: state.data.today }); actions.reload(); window.setTimeout(() => (mockControls.slowLoad = false), 100); }}>טעינה איטית</Button>
+            <Button onClick={() => { mockControls.failNextLoad = true; onClose(); navigate({ name: 'workout', date: state.data.today }); actions.reload(); }}>כשל טעינה</Button>
           </div>
         </section>
 

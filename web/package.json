@@ -9,11 +9,12 @@
     "build": "tsc --noEmit && vite build",
     "build:mock": "VITE_DATA_SOURCE=mock vite build",
     "preview": "vite preview",
-    "test:unit": "node scripts/unit-api-mapping.mjs && node scripts/unit-nutrition.mjs",
+    "test:unit": "node scripts/unit-api-mapping.mjs && node scripts/unit-nutrition.mjs && node scripts/unit-weight.mjs && node scripts/unit-schedule.mjs",
     "seed:api": "node scripts/seed-api.mjs",
     "test:api": "node scripts/api-flows.mjs",
     "test:mock": "node scripts/flows.mjs",
-    "test:nutrition": "node scripts/nutrition-flows.mjs"
+    "test:nutrition": "node scripts/nutrition-flows.mjs",
+    "test:weight": "node scripts/weight-flows.mjs"
   },
   "dependencies": {
     "@fontsource-variable/heebo": "^5.3.0",

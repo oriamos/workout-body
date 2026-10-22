@@ -8,8 +8,10 @@ import { HistoryScreen } from './screens/HistoryScreen';
 import { ExercisesScreen } from './screens/ExercisesScreen';
 import { ExerciseScreen } from './screens/ExerciseScreen';
 import { ProgressScreen } from './screens/ProgressScreen';
-import { LoadError, TodayLoading, TodayScreen } from './screens/TodayScreen';
+import { LoadError, TodayLoading, WorkoutScreen } from './screens/WorkoutScreen';
+import { WeekLoading, WeekScreen } from './screens/WeekScreen';
 import { NutritionScreen } from './nutrition/NutritionScreen';
+import { WeightScreen } from './weight/WeightScreen';
 
 export default function App() {
   const { state } = useStore();
@@ -20,7 +22,7 @@ export default function App() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#101319' : '#eef1f6');
   }, [theme]);
   let screen;
-  if (state.load === 'loading') screen = <TodayLoading />;
+  if (state.load === 'loading') screen = route.name === 'today' ? <WeekLoading /> : <TodayLoading />;
   else if (state.load === 'error') screen = <LoadError />;
   else
     switch (route.name) {
@@ -30,7 +32,9 @@ export default function App() {
       case 'exercises': screen = <ExercisesScreen />; break;
       case 'exercise': screen = <ExerciseScreen id={route.id} />; break;
       case 'nutrition': screen = <NutritionScreen date={route.date} />; break;
-      default: screen = <TodayScreen />;
+      case 'weight': screen = <WeightScreen />; break;
+      case 'workout': screen = <WorkoutScreen date={route.date} />; break;
+      default: screen = <WeekScreen week={route.name === 'today' ? route.week : undefined} />;
     }
   return <AppShell>{screen}</AppShell>;
 }

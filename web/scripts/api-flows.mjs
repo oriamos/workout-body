@@ -108,14 +108,48 @@ try {
   const closeRest = async () => { if (await p.locator('.rest-x').count()) await p.locator('.rest-x').first().click().catch(() => {}); };
   const todayW = async () => (await api('GET', '/workouts/today')).data;
 
+  // ---- 2. home = the week (GET /schedule), schedule a plan, start today's workout from the week ----
+  const HE_DAY = { sun: 'ראשון', mon: 'שני', tue: 'שלישי', wed: 'רביעי', thu: 'חמישי', fri: 'שישי', sat: 'שבת' };
+  const JS_DAY = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const addDays = (d, n) => { const t = new Date(`${d}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  const todayWd = JS_DAY[new Date(`${config.today}T12:00:00Z`).getUTCDay()];
+  const dayCard = (date) => p.locator(`.week-days > .day[data-date="${date}"]`);
+  const planStatus = (date, name) => dayCard(date).locator(`.day-plan[data-plan="${name}"]`).getAttribute('data-status').catch(() => null);
+  const weekDates = () => p.locator('.week-days > .day').evaluateAll((els) => els.map((e) => `${e.dataset.date}:${e.dataset.weekday}`));
+  const { data: sched0 } = await api('GET', '/schedule');
+  const serverWeek = sched0.days.map((d) => `${d.date}:${d.weekday}`).join(',');
+
   await p.goto(`${WEBURL}/#/today`);
-  await ready();
-  check(await p.locator('.today-empty').count() === 1, 'UI loads from the engine: no workout today yet (empty state)');
+  await p.waitForSelector('.week-days > .day', { timeout: 20000 });
+  check((await weekDates()).join(',') === serverWeek && sched0.days.length === 7, `week shows the server's 7 days, starting on its configured first day (${sched0.days[0].weekday}: ${sched0.from} -> ${sched0.to})`, async () => (await weekDates()).join(','));
+  check(await p.locator('.day[aria-current="date"]').getAttribute('data-date') === config.today, 'today is highlighted (aria-current="date")');
+  check(await p.locator('.week-empty').count() === 1, 'no plan has a schedule yet: the week explains it and links to Plans');
   check(await p.locator('button[aria-label^="כלי הדגמה"]').count() === 0, 'prototype controls (flask) are hidden in api mode');
 
-  // ---- 2. start today's workout from that plan ----
-  await p.locator('.start-list button', { hasText: PLAN }).click();
+  await p.locator('.week-empty').getByRole('button', { name: 'לתוכניות' }).click();
+  await p.locator('.plan-item', { hasText: PLAN }).click();
+  await p.waitForSelector('.sched');
+  await p.getByRole('radio', { name: 'ימים קבועים' }).click();
+  await p.getByRole('button', { name: HE_DAY[todayWd], exact: true }).click();
+  const planSched = await waitFor(async () => { const d = (await api('GET', `/plans/${imp.plan.id}`)).data; return d.schedule?.days?.includes(todayWd) && d; }, 10000, 'schedule saved').catch(async () => (await api('GET', `/plans/${imp.plan.id}`)).data);
+  check(JSON.stringify(planSched.schedule) === JSON.stringify({ type: 'weekdays', days: [todayWd] }) && planSched.items.length === 2, `schedule editor sets the plan's schedule on the server (PUT /plans/{id}/schedule: ${JSON.stringify(planSched.schedule)}), exercises untouched`);
+
+  await p.locator('.nav-item', { hasText: 'השבוע' }).click();
+  await p.waitForSelector('.week-days > .day');
+  await waitFor(async () => (await planStatus(config.today, PLAN)) === 'due', 8000, 'due').catch(() => {});
+  const apiDay = (await api('GET', '/schedule')).data.days.find((d) => d.today);
+  check(await planStatus(config.today, PLAN) === 'due' && (await dayCard(config.today).locator('.chip').first().innerText()) === 'היום' && apiDay.scheduled[0]?.status === 'due', `"${PLAN}" appears on today's weekday (${todayWd}) with status due (היום), as GET /schedule says`);
+  const otherDays = (await weekDates()).filter((x) => !x.startsWith(config.today));
+  let elsewhere = 0;
+  for (const x of otherDays) elsewhere += await dayCard(x.split(':')[0]).locator('.day-plan').count();
+  check(elsewhere === 0, 'and on no other day of the week');
+  await p.screenshot({ path: path.join(SHOTS, 'e2e-0-week.png') });
+
+  const startBtn = dayCard(config.today).getByRole('button', { name: /התחל אימון/ });
+  check((await startBtn.innerText()).includes(PLAN), `today's card offers "התחל אימון · ${PLAN}" with the scheduled plan preselected`);
+  await startBtn.click();
   await p.waitForSelector('section.ex [data-set-id]');
+  check(p.url().endsWith(`#/workout/${config.today}`), `the workout opens at #/workout/${config.today}`);
   await settle();
   let w = await todayW();
   check(w.plan_name === PLAN && w.progress.filter((x) => x.target_sets > 0).length === 2 && w.sets.length === 0, 'starting from the plan creates today\'s workout on the server (follows the plan, no sets yet)', () => JSON.stringify({ plan: w.plan_name, progress: w.progress, sets: w.sets.length }));
@@ -135,6 +169,30 @@ try {
   w = await todayW();
   const benchSets = w.sets.filter((s) => s.exercise === 'bench press');
   check(w.sets.length === 2 && benchSets.map((s) => [s.weight_kg, s.reps]).join('|') === '60,8|62.5,7', 'API has exactly the two completed sets with the entered values', () => JSON.stringify(w.sets.map((s) => [s.exercise, s.weight_kg, s.reps])));
+
+  // ---- 3b. back to the week: today's plan is done; prev/next week; reopen today's workout ----
+  await p.getByRole('button', { name: 'חזרה לשבוע' }).click();
+  await p.waitForSelector('.week-days > .day');
+  const doneSeen = await waitFor(async () => (await planStatus(config.today, PLAN)) === 'done', 10000, 'done').then(() => true, () => false);
+  check(doneSeen && (await dayCard(config.today).locator('.chip').first().innerText()) === 'בוצע', 'back on the week, today\'s plan shows done (בוצע) after logging sets (GET /schedule re-read)');
+  const todayStats = await dayCard(config.today).locator('.day-stats').innerText();
+  check(/^2\s*סטים/.test(todayStats), `today's card shows the 2 sets done (${todayStats.replace(/\s+/g, ' ')})`, JSON.stringify(todayStats));
+  await p.getByRole('button', { name: 'שבוע הבא' }).click();
+  const next = addDays(sched0.from, 7);
+  await p.waitForSelector(`.day[data-date="${next}"]`, { timeout: 10000 }).catch(() => {});
+  const nextDates = await weekDates();
+  check(nextDates.length === 7 && nextDates[0] === `${next}:${sched0.days[0].weekday}` && nextDates[6].startsWith(addDays(next, 6)), `next week: ${next} -> ${addDays(next, 6)} (GET /schedule?from&to)`, () => nextDates.join(','));
+  check(await planStatus(addDays(config.today, 7), PLAN) === 'upcoming', 'next week the plan is upcoming on the same weekday');
+  await p.getByRole('button', { name: 'שבוע קודם' }).click();
+  await p.getByRole('button', { name: 'שבוע קודם' }).click();
+  const prev = addDays(sched0.from, -7);
+  await p.waitForSelector(`.day[data-date="${prev}"]`, { timeout: 10000 }).catch(() => {});
+  check((await weekDates())[0] === `${prev}:${sched0.days[0].weekday}` && await planStatus(addDays(config.today, -7), PLAN) === 'missed', `previous week: ${prev}, the plan shows missed (פוספס)`);
+  await p.getByRole('button', { name: 'השבוע', exact: true }).click();
+  await p.waitForSelector(`.day[data-date="${config.today}"]`);
+  await p.getByRole('button', { name: 'פתח את האימון של היום' }).click();
+  await p.waitForSelector('section.ex [data-set-id]');
+  check(p.url().endsWith(`#/workout/${config.today}`) && await rows('Bench Press').locator('.check[aria-pressed="true"]').count() === 2, '"השבוע" returns to this week and "פתח את האימון של היום" reopens it');
 
   // ---- 4. reload: values come back from the server ----
   await p.reload();
@@ -221,7 +279,7 @@ try {
   check(carry2.items[0].target_sets === 4 && carry2.revision > carryDetail.revision, 'editing the plan in the UI replaces it on the server (sets 3 -> 4, revision bumped)', () => JSON.stringify(carry2.items[0]));
 
   // ---- 10. un-done / re-done a set (DELETE, then POST with a fresh idempotency key) ----
-  await p.goto(`${WEBURL}/#/today`);
+  await p.goto(`${WEBURL}/#/workout`);
   await ready();
   const b2 = rows('Bench Press').nth(1);
   await b2.locator('.check').click();

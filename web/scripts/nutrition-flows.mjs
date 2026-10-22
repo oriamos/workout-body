@@ -88,7 +88,9 @@ try {
   // Background data through the API: historical targets and a past meal (for Browse).
   await api('PUT', `/nutrition/targets/${addDays(today, -5)}`, { calories_kcal: 2000, protein_g: 120 }, { 'If-Match': '"0"', 'Content-Type': 'application/merge-patch+json' });
   const { data: shak } = await api('POST', '/nutrition/entries', { date: past, name: 'שקשוקה', calories_kcal: 450, protein_g: 25, carbs_g: 20, fat_g: 30 }, { 'Idempotency-Key': 'e2e-past-1' });
-  pass(`API setup: targets from ${addDays(today, -5)} (2000 kcal, 120 g protein), past meal on ${past}`);
+  const older = addDays(today, -10);
+  await api('POST', '/nutrition/entries', { date: older, name: 'צהריים', items: [{ name: 'חזה עוף', amount_g: 100, calories_kcal: 165, protein_g: 31, carbs_g: 0, fat_g: 3.6 }, { name: 'פיתה', amount_g: null, calories_kcal: 270, protein_g: null, carbs_g: 55, fat_g: null }] }, { 'Idempotency-Key': 'e2e-older-1' });
+  pass(`API setup: targets from ${addDays(today, -5)} (2000 kcal, 120 g protein), past meal on ${past}, a meal with ingredients on ${older}`);
 
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? '/opt/pw-browsers/chromium', args: ['--no-sandbox'] }).catch(() => chromium.launch({ args: ['--no-sandbox'] }));
   const p = await (await browser.newContext({ viewport: { width: 1280, height: 1000 } })).newPage();
@@ -104,11 +106,18 @@ try {
   async function fillForm(v) {
     for (const [k, val] of Object.entries(v)) await field(k).fill(val);
   }
+  // New meals open in ingredients mode; the old four fields are behind "ארוחה פשוטה בלי מרכיבים".
+  const plainMode = () => sheet.locator('input[name="plain-mode"]').check();
+  const itemRow = (i) => sheet.locator('.nut-item-row').nth(i);
+  const itemField = (i, n) => itemRow(i).locator(`input[name="item-${n}"]`);
+  const totalText = async (k) => (await sheet.locator(`.nut-total[data-nutrient="${k}"]`).innerText()).replace(/\s+/g, ' ');
+  const posts = [];
+  p.on('request', (r) => { if (r.method() === 'POST' && r.url().endsWith('/api/v1/nutrition/entries')) posts.push(r.postDataJSON()); });
 
   // ---- 1. open Nutrition from the tab bar ----
   await p.goto(`${WEBURL}/#/today`);
-  await p.waitForSelector('[data-set-id], .today-empty', { timeout: 20000 });
-  await p.locator('.nav-item', { hasText: 'תזונה' }).click();
+  await p.locator('.nav-item', { hasText: 'תזונה' }).first().waitFor({ timeout: 20000 });
+  await p.locator('.nav-item', { hasText: 'תזונה' }).first().click();
   await p.waitForSelector('.nut-summary');
   await check(p.url().endsWith('#/nutrition') && (await p.locator('.nut-not-today').count()) === 0, 'Nutrition tab opens today\'s day (no "not today" badge)');
   await check((await rowText('carbs_g')).includes('אין יעד') && (await rowText('calories_kcal')).includes('2,000'), 'targets in effect today come from the server; unset target shows "אין יעד"', () => rowText('carbs_g'));
@@ -126,10 +135,13 @@ try {
 
   // ---- 3. add two meals via the form, one with a blank field ----
   await p.getByRole('button', { name: 'הוספת ארוחה' }).click();
+  await check((await sheet.locator('.nut-item-row').count()) === 1 && !(await sheet.locator('input[name="plain-mode"]').isChecked()), 'a new meal opens in ingredients mode');
+  await plainMode();
   await fillForm({ name: 'חביתה', calories_kcal: '400', protein_g: '25', fat_g: '30' }); // carbs left blank
   await sheet.getByRole('button', { name: 'הוספה' }).click();
   await sheet.waitFor({ state: 'detached' }).catch(() => {});
   await p.getByRole('button', { name: 'הוספת ארוחה' }).click();
+  await plainMode();
   await fillForm({ name: 'פסטה', calories_kcal: '700', protein_g: '20', carbs_g: '90', fat_g: '15.5' });
   await sheet.getByRole('button', { name: 'הוספה' }).click();
   await sheet.waitFor({ state: 'detached' }).catch(() => {});
@@ -158,6 +170,7 @@ try {
 
   // ---- 6. failed validation keeps the typed values ----
   await p.getByRole('button', { name: 'הוספת ארוחה' }).click();
+  await plainMode();
   await fillForm({ name: 'בדיקה', calories_kcal: '-5', protein_g: 'abc', carbs_g: '2500' });
   await sheet.getByRole('button', { name: 'הוספה' }).click();
   const errTexts = await sheet.locator('.field-err').allInnerTexts();
@@ -198,6 +211,7 @@ try {
 
   // ---- 9. an entry added elsewhere appears without disturbing an open form ----
   await p.getByRole('button', { name: 'הוספת ארוחה' }).click();
+  await plainMode();
   await fillForm({ name: 'טופס פתוח', calories_kcal: '123' });
   await field('protein_g').focus();
   const t0 = Date.now();
@@ -238,6 +252,89 @@ try {
   await until(async () => p.url().endsWith('#/nutrition'));
   await check((await p.locator('.nut-not-today').count()) === 0, '"היום" in the calendar returns to today');
   await p.screenshot({ path: path.join(SHOTS, 'nut-3-today.png') });
+
+  // ---- 12. a meal made of 3 ingredients (one lacks fat), with autocomplete + scaling ----
+  await p.getByRole('button', { name: 'הוספת ארוחה' }).click();
+  await field('name').fill('קערת עוף');
+  await itemField(0, 'amount_g').fill('150');
+  await itemField(0, 'name').fill('חזה');
+  const sug = sheet.locator('.nut-suggest li', { hasText: 'חזה עוף' });
+  await check(await until(async () => (await sug.count()) === 1, 5000), 'typing an ingredient name suggests one used before (GET /nutrition/items)');
+  await sug.click();
+  const vals0 = async () => Promise.all(['name', 'amount_g', 'calories_kcal', 'protein_g', 'carbs_g', 'fat_g'].map((n) => itemField(0, n).inputValue()));
+  await check(JSON.stringify(await vals0()) === JSON.stringify(['חזה עוף', '150', '248', '46.5', '0', '5.4']) && (await itemRow(0).innerText()).includes('הותאם לכמות'), 'picking it (base 100 g) at 150 g scales the values (248 kcal, 46.5 P, 5.4 F) and says "הותאם לכמות"', async () => JSON.stringify(await vals0()));
+  await itemField(0, 'amount_g').fill('200');
+  await check(JSON.stringify(await vals0()) === JSON.stringify(['חזה עוף', '200', '330', '62', '0', '7.2']), 'changing the amount afterwards rescales from the picked base (200 g -> 330 kcal, 62 P, 7.2 F)', async () => JSON.stringify(await vals0()));
+  await sheet.getByRole('button', { name: 'הוספת מרכיב' }).click();
+  for (const [n, v] of Object.entries({ name: 'אורז', amount_g: '180', calories_kcal: '234', protein_g: '4.3', carbs_g: '51', fat_g: '0.5' })) await itemField(1, n).fill(v);
+  await sheet.getByRole('button', { name: 'הוספת מרכיב' }).click();
+  for (const [n, v] of Object.entries({ name: 'סלט', calories_kcal: '30', protein_g: '1.2', carbs_g: '6' })) await itemField(2, n).fill(v);
+  await check((await totalText('calories_kcal')).includes('594') && (await totalText('protein_g')).includes('67.5') && (await totalText('carbs_g')).includes('57') && (await totalText('fat_g')).includes('7.7') && (await totalText('fat_g')).includes('חלקי: חסר במרכיב אחד') && !(await totalText('calories_kcal')).includes('חלקי'),
+    'live totals: 594 kcal / 67.5 P / 57 C / 7.7 F, fat marked "חלקי: חסר במרכיב אחד"', async () => (await sheet.locator('.nut-totals').innerText()).replace(/\s+/g, ' '));
+  await p.screenshot({ path: path.join(SHOTS, 'nut-4-ingredients-form.png') });
+  posts.length = 0;
+  await sheet.getByRole('button', { name: 'הוספה' }).click();
+  await sheet.waitFor({ state: 'detached' }).catch(() => {});
+  await until(async () => (await entry('קערת עוף').count()) === 1);
+  const sent = posts.at(-1) ?? {};
+  await check(Array.isArray(sent.items) && sent.items.length === 3 && !['calories_kcal', 'protein_g', 'carbs_g', 'fat_g'].some((k) => k in sent) && !('fat_g' in sent.items[2] && sent.items[2].fat_g !== null) && sent.items[2].amount_g === null,
+    'POST sends the 3 items and no meal-level values; blank values are null, not 0', JSON.stringify(sent));
+  d = await dayApi();
+  let bowl = d.entries.find((e) => e.name === 'קערת עוף');
+  await check(bowl && bowl.items.length === 3 && bowl.calories_kcal === 594 && bowl.protein_g === 67.5 && bowl.carbs_g === 57 && bowl.fat_g === 7.7 && JSON.stringify(bowl.incomplete_values) === '["fat_g"]' && bowl.items[0].amount_g === 200 && bowl.items[0].calories_kcal === 330,
+    'the API stored it: sums 594/67.5/57/7.7, incomplete_values ["fat_g"], first item 200 g / 330 kcal', JSON.stringify(bowl));
+  const bowlRow = p.locator('.nut-entries .nut-entry-li', { hasText: 'קערת עוף' });
+  await check((await bowlRow.innerText()).includes('594') && (await bowlRow.locator('.nut-partial').count()) === 1 && (await bowlRow.locator('.nut-partial').innerText()).includes('שומן'), 'the day list shows the meal totals and a partial-total badge naming fat', () => bowlRow.innerText());
+  await bowlRow.locator('.nut-items-toggle').click();
+  const itemTexts = await bowlRow.locator('.nut-item').allInnerTexts();
+  await check(itemTexts.length === 3 && itemTexts[0].includes('חזה עוף') && itemTexts[0].includes('200') && itemTexts[0].includes('330') && itemTexts[2].includes('סלט') && itemTexts[2].includes('—'), 'expanding shows its 3 ingredients (name, grams, values; missing as "—")', itemTexts.join(' | '));
+  await check(d.fat_g.entries_missing_value === 2 && (await rowText('fat_g')).includes('חסר ב־2 ארוחות') && (await rowText('calories_kcal')).includes(new Intl.NumberFormat('en-US').format(d.calories_kcal.consumed)),
+    `day summary matches the API (fat missing in 2 meals incl. the partial one; ${d.calories_kcal.consumed} kcal)`, () => rowText('fat_g'));
+  await p.screenshot({ path: path.join(SHOTS, 'nut-5-day-ingredients.png') });
+
+  // ---- 13. edit an ingredient -> totals recompute ----
+  await bowlRow.locator('.nut-entry').click();
+  await check((await sheet.locator('.nut-item-row').count()) === 3 && (await itemField(2, 'name').inputValue()) === 'סלט', 'editing opens the meal with its ingredient rows');
+  await itemField(2, 'fat_g').fill('0.3');
+  await itemField(1, 'calories_kcal').fill('250');
+  await check((await totalText('calories_kcal')).includes('610') && (await totalText('fat_g')).includes('8') && (await sheet.locator('.nut-total-partial').count()) === 0, 'live totals recompute (610 kcal, fat 8, no longer partial)', async () => (await sheet.locator('.nut-totals').innerText()).replace(/\s+/g, ' '));
+  await sheet.getByRole('button', { name: 'שמירה' }).click();
+  await sheet.waitFor({ state: 'detached' }).catch(() => {});
+  await until(async () => (await bowlRow.innerText()).includes('610'));
+  bowl = (await api('GET', `/nutrition/entries/${bowl.id}`)).data;
+  await check(bowl.calories_kcal === 610 && bowl.fat_g === 8 && bowl.incomplete_values.length === 0 && bowl.items[2].fat_g === 0.3 && bowl.revision === 2, 'PATCH replaced the items; the API totals recomputed (610 kcal, 8 g fat, complete)', JSON.stringify(bowl));
+  await check((await bowlRow.locator('.nut-partial').count()) === 0 && (await bowlRow.innerText()).includes('610'), 'the day list shows the new totals and no partial badge');
+
+  // ---- 14. browse: ingredient count; copy keeps ingredients ----
+  const yday = addDays(today, -1);
+  await p.getByRole('button', { name: 'ארוחות קודמות' }).click();
+  await sheet.getByLabel('חיפוש ארוחה לפי שם').fill('קערת');
+  await until(async () => (await sheet.locator('.nut-entry').count()) === 1 && (await sheet.locator('.nut-entry', { hasText: 'קערת עוף' }).count()) === 1);
+  await check((await sheet.locator('.nut-entry').innerText()).includes('3 מרכיבים'), 'browse shows the ingredient count', () => sheet.locator('.nut-browse').innerText());
+  await sheet.locator('.nut-entry', { hasText: 'קערת עוף' }).click();
+  await check((await sheet.locator('.nut-detail .nut-item').count()) === 3, 'details list the ingredients');
+  await sheet.getByLabel('תאריך להעתקה').fill(yday);
+  await sheet.getByRole('button', { name: 'העתקה לתאריך' }).click();
+  await until(async () => (await p.locator('.toast', { hasText: 'הועתקה ל' }).count()) > 0, 5000);
+  await sheet.getByRole('button', { name: 'סגירה' }).click();
+  const ycopy = (await dayApi(yday)).entries.find((e) => e.name === 'קערת עוף');
+  await check(ycopy && ycopy.copied_from === bowl.id && ycopy.items.length === 3 && ycopy.calories_kcal === 610 && ycopy.items[0].name === 'חזה עוף', `the copy on ${yday} keeps the 3 ingredients`, JSON.stringify(ycopy));
+
+  // ---- 15. convert to a simple meal (items: []) ----
+  await bowlRow.locator('.nut-entry').click();
+  await plainMode();
+  await check((await field('calories_kcal').inputValue()) === '610' && (await field('fat_g').inputValue()) === '8' && (await sheet.locator('.nut-convert-note').count()) === 1, 'unchecking ingredients shows the four fields with the current sums and a removal note');
+  await sheet.getByRole('button', { name: 'שמירה' }).click();
+  await sheet.waitFor({ state: 'detached' }).catch(() => {});
+  await until(async () => (await bowlRow.locator('.nut-items-toggle').count()) === 0);
+  bowl = (await api('GET', `/nutrition/entries/${bowl.id}`)).data;
+  await check(bowl.items.length === 0 && bowl.calories_kcal === 610 && bowl.fat_g === 8 && (await bowlRow.locator('.nut-items-toggle').count()) === 0, 'converted: no items on the server, the sums kept as the meal values (610 kcal)', JSON.stringify(bowl));
+  await check((await dayApi(yday)).entries.find((e) => e.name === 'קערת עוף')?.items.length === 3, 'the earlier copy keeps its ingredients (independent)');
+  await bowlRow.locator('.nut-entry').click();
+  await check((await sheet.locator('input[name="plain-mode"]').isChecked()) && (await field('calories_kcal').inputValue()) === '610', 'the simple meal now edits its values directly');
+  await sheet.getByRole('button', { name: 'פירוק למרכיבים' }).click();
+  await check((await sheet.locator('.nut-item-row').count()) === 1 && (await itemField(0, 'calories_kcal').inputValue()) === '610' && (await totalText('calories_kcal')).includes('610'), '"פירוק למרכיבים" starts an ingredient list from the meal values');
+  await sheet.getByRole('button', { name: 'ביטול' }).click();
 
   await check(errs.length === 0, 'no page errors', () => errs.join('\n       '));
 } catch (e) {

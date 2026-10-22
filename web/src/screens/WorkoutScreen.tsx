@@ -5,7 +5,7 @@ import { SessionSummary, WorkoutView } from '../components/WorkoutView';
 import { Button, Chip, EmptyState, Ltr, Skeleton } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { longDate } from '../lib/format';
-import { navigate } from '../lib/router';
+import { goBack, navigate } from '../lib/router';
 import { exerciseById } from '../lib/stats';
 import { useRest } from '../components/RestTimer';
 
@@ -45,7 +45,29 @@ export function LoadError() {
   );
 }
 
-export function TodayScreen() {
+/** A day's workout (#/workout/YYYY-MM-DD), opened from the week. Logging happens on today's workout only. */
+export function WorkoutScreen({ date }: { date?: string }) {
+  const { state } = useStore();
+  const today = state.data.today;
+  const other = date && date !== today ? state.data.workouts.find((w) => w.date === date) : undefined;
+  useEffect(() => {
+    // A past day's workout lives in History (same editing view, with its own banner).
+    if (other) navigate({ name: 'history', date: other.date }, { replace: true });
+  }, [other]);
+  if (date && date !== today) {
+    return (
+      <div className="page workout-page">
+        <PageHeader title={longDate(date)} back={{ label: 'חזרה לשבוע', onClick: () => goBack({ name: 'today' }) }} />
+        <EmptyState icon="today" title={date > today ? 'היום הזה עוד לא הגיע' : 'לא תועד אימון ביום הזה'} action={<Button variant="primary" onClick={() => navigate({ name: 'today' })}>חזרה לשבוע</Button>}>
+          אימון מתעדים ביום שבו הוא מתבצע. התוכניות של היום מופיעות במסך השבוע.
+        </EmptyState>
+      </div>
+    );
+  }
+  return <TodayWorkout />;
+}
+
+function TodayWorkout() {
   const { state, actions } = useStore();
   const workout = useToday();
   const rest = useRest();
@@ -59,6 +81,7 @@ export function TodayScreen() {
   const header = (
     <PageHeader
       status
+      back={{ label: 'חזרה לשבוע', onClick: () => goBack({ name: 'today' }) }}
       title={longDate(state.data.today)}
       sub={
         workout ? (
@@ -76,7 +99,7 @@ export function TodayScreen() {
 
   if (!workout) {
     return (
-      <div className="page">
+      <div className="page workout-page">
         {header}
         <div className="today-empty">
           <EmptyState icon="today" title="אין אימון להיום">
@@ -104,7 +127,7 @@ export function TodayScreen() {
 
   const plan = state.data.plans.find((p) => p.id === workout.planId);
   return (
-    <div className="page">
+    <div className="page workout-page">
       {header}
       <div className="today-grid">
         <aside className="today-aside">

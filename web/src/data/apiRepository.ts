@@ -12,8 +12,8 @@ import type { WorkoutRepository } from './repository';
 import {
   blankDraft, changeSummary, diffWorkout, draftId, emptySnapshot, howToFromGuide, iso, mediaUrl, normName, planDocument, prescriptionInput,
   setInput, setPatchBody, setSummary, snapshotOf, titleCase, toClientExercise, toClientPlan, toClientWorkout, toPrescription, toSetEntry,
-  workingNumber,
-  type SBatchResult, type SConfig, type SExercise, type SGuide, type SMedia, type SPlan, type SPlanItem, type Snapshot, type SSet, type SWorkout,
+  toWeekSchedule, workingNumber,
+  type SBatchResult, type SScheduleView, type SConfig, type SExercise, type SGuide, type SMedia, type SPlan, type SPlanItem, type Snapshot, type SSet, type SWorkout,
   type SWorkoutSummary,
 } from './apiMapping';
 import { exerciseMeta, notesFor, pendingFor, setLocalNote, setPending, setStartedAt, startedAtFor } from './localMeta';
@@ -517,8 +517,22 @@ export function createApiRepository(base = '/api/v1'): WorkoutRepository {
 
       case 'savePlan': {
         const plan = m.plan;
+        const prev = before.plans.find((p) => p.id === plan.id);
+        const strip = (p: Plan) => JSON.stringify({ ...p, schedule: null });
+        // Only the schedule changed: use the dedicated setter, which leaves the exercises untouched.
+        const scheduleOnly = !!prev && strip(prev) === strip(plan) && JSON.stringify(prev.schedule ?? null) !== JSON.stringify(plan.schedule ?? null);
         return async () => {
           const info = plans.get(plan.id);
+          if (scheduleOnly && info) {
+            try {
+              const r = await req<SPlan>('PUT', `/plans/${info.id}/schedule`, { json: { schedule: plan.schedule ?? null }, headers: ifMatch(info.revision) });
+              plans.set(plan.id, { ...info, revision: r.data.revision, schedule: r.data.schedule });
+              return;
+            } catch (e) {
+              if (!(e instanceof ApiError && e.status === 412)) throw e;
+              // fall through: the full replace below reloads the plan and reports the conflict
+            }
+          }
           if (!plan.exercises.length) {
             if (!info) return; // a new, empty plan stays local until its first exercise
             throw new ApiError(400, 'validation_error', 'תוכנית חייבת לכלול לפחות תרגיל אחד.');
@@ -710,6 +724,12 @@ export function createApiRepository(base = '/api/v1'): WorkoutRepository {
       });
     },
     capabilities: { videoNeedsDoneSet: true },
+    async schedule(range) {
+      const q = range ? `?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}` : '';
+      const r = await req<SScheduleView>('GET', `/schedule${q}`);
+      const planIdOf = (sid: number) => [...plans].find(([, info]) => info.id === sid)?.[0] ?? String(sid);
+      return toWeekSchedule(r.data, planIdOf);
+    },
   };
 }
 

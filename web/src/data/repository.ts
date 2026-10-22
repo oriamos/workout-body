@@ -2,6 +2,7 @@
 // - `createApiRepository` (default): the workout engine's HTTP API through the same-origin proxy.
 // - `createMockRepository` (VITE_DATA_SOURCE=mock): the in-memory prototype with its demo controls.
 import type { AppData } from './types';
+import type { WeekSchedule } from './schedule';
 import { buildSeed } from './seed';
 import type { ExternalUpdate, Mutation } from './mutations';
 import { createApiRepository } from './apiRepository';
@@ -20,6 +21,12 @@ export interface WorkoutRepository {
   /** Short informational messages for the user (e.g. "a similar exercise already exists"). */
   subscribeNotices?(cb: (text: string) => void): () => void;
   capabilities?: { videoNeedsDoneSet?: boolean };
+  /**
+   * The week view from the server. Without a range: the server's default (current) week, whose first
+   * day (days[0].weekday) is the configured start of the week. Absent in the mock, where the UI
+   * computes the view from its own in-memory data (src/data/schedule.ts, weeks start on Sunday).
+   */
+  schedule?(range?: { from: string; to: string }): Promise<WeekSchedule>;
 }
 
 /** Demo-only switches. Not part of the real interface. */

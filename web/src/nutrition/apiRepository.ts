@@ -1,7 +1,7 @@
 // NutritionRepository over the engine's HTTP API (/api/v1/nutrition/...).
 import { ApiError } from '../data/apiRepository';
 import type { NutritionRepository } from './repository';
-import type { EntryFilter, NutritionDay, NutritionEntry, NutritionTargets } from './types';
+import type { EntryFilter, ItemSuggestion, NutritionDay, NutritionEntry, NutritionTargets } from './types';
 
 const BASE = '/api/v1/nutrition';
 
@@ -36,16 +36,21 @@ const qs = (o: Record<string, string | number | undefined>) => {
 const ifMatch = (rev: number) => ({ 'If-Match': `"${rev}"` });
 const merge = { 'Content-Type': 'application/merge-patch+json' };
 
+/** Older servers have no ingredients: treat a missing list as none. */
+const norm = (e: NutritionEntry): NutritionEntry => ({ ...e, items: e.items ?? [], incomplete_values: e.incomplete_values ?? [] });
+const normDay = (d: NutritionDay): NutritionDay => ({ ...d, entries: d.entries.map(norm) });
+
 export function createApiNutrition(): NutritionRepository {
   return {
-    day: (date) => req<NutritionDay>('GET', `/days/${encodeURIComponent(date)}`),
-    days: (from, to) => req<{ days: NutritionDay[] }>('GET', `/days${qs({ from, to })}`).then((r) => r.days),
-    entries: (f: EntryFilter) => req<{ entries: NutritionEntry[] }>('GET', `/entries${qs({ date: f.date, from: f.from, to: f.to, q: f.q, limit: f.limit })}`).then((r) => r.entries),
-    entry: (id) => req<NutritionEntry>('GET', `/entries/${id}`),
-    add: (input, key) => req<{ entry: NutritionEntry }>('POST', '/entries', { json: input, headers: { 'Idempotency-Key': key } }).then((r) => r.entry),
-    update: (id, patch, revision) => req<NutritionEntry>('PATCH', `/entries/${id}`, { json: patch, headers: { ...ifMatch(revision), ...merge } }),
+    day: (date) => req<NutritionDay>('GET', `/days/${encodeURIComponent(date)}`).then(normDay),
+    days: (from, to) => req<{ days: NutritionDay[] }>('GET', `/days${qs({ from, to })}`).then((r) => r.days.map(normDay)),
+    entries: (f: EntryFilter) => req<{ entries: NutritionEntry[] }>('GET', `/entries${qs({ date: f.date, from: f.from, to: f.to, q: f.q, limit: f.limit })}`).then((r) => r.entries.map(norm)),
+    entry: (id) => req<NutritionEntry>('GET', `/entries/${id}`).then(norm),
+    add: (input, key) => req<{ entry: NutritionEntry }>('POST', '/entries', { json: input, headers: { 'Idempotency-Key': key } }).then((r) => norm(r.entry)),
+    update: (id, patch, revision) => req<NutritionEntry>('PATCH', `/entries/${id}`, { json: patch, headers: { ...ifMatch(revision), ...merge } }).then(norm),
     remove: (id, revision) => req<void>('DELETE', `/entries/${id}`, { headers: ifMatch(revision) }),
-    copy: (id, date, key) => req<{ entry: NutritionEntry }>('POST', `/entries/${id}/copy`, { json: { date }, headers: { 'Idempotency-Key': key } }).then((r) => r.entry),
+    copy: (id, date, key) => req<{ entry: NutritionEntry }>('POST', `/entries/${id}/copy`, { json: { date }, headers: { 'Idempotency-Key': key } }).then((r) => norm(r.entry)),
+    suggestItems: (q, limit = 8) => req<{ items: ItemSuggestion[] }>('GET', `/items${qs({ q: q.trim(), limit })}`).then((r) => r.items ?? []),
     targets: (date) => req<{ targets: NutritionTargets }>('GET', `/targets${qs({ date })}`).then((r) => r.targets),
     setTargets: (date, patch, revision) => req<NutritionTargets>('PUT', `/targets/${encodeURIComponent(date)}`, { json: patch, headers: { ...ifMatch(revision), ...merge } }),
   };

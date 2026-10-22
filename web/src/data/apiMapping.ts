@@ -1,6 +1,7 @@
 // Pure mapping between the workout engine's JSON API (/api/v1) and the UI's domain types.
 // No network, no DOM: unit-tested by scripts/unit-api-mapping.mjs.
-import type { Exercise, HowTo, MuscleGroup, Plan, PlanExercise, Prescription, SetEntry, SetType, Workout, WorkoutExercise } from './types';
+import type { Exercise, HowTo, MuscleGroup, Plan, PlanExercise, PlanSchedule, Prescription, SetEntry, SetType, Weekday, Workout, WorkoutExercise } from './types';
+import type { ScheduleStatus, WeekSchedule } from './schedule';
 import { EXERCISES } from './seed';
 
 // ---------- engine shapes (subset of internal/apisrv/openapi.yaml) ----------
@@ -21,6 +22,14 @@ export interface SPlanItem { position: number; exercise: string; target_sets: nu
 export interface SPlan { id: number; name: string; notes?: string; schedule: unknown | null; items?: SPlanItem[]; revision: number; total_sets: number }
 export interface SMedia { id: number; filename: string; content_type: string; size_bytes: number }
 export interface SGuide { exercise_id: number; exercise: string; instructions: string; videos: SMedia[] }
+export interface SScheduledPlan { plan_id: number; name: string; status: ScheduleStatus }
+export interface SWorkoutRef { id: number; plan_id: number | null; plan_name?: string; working_sets: number; revision: number }
+export interface SScheduleDay { date: string; weekday: Weekday; today: boolean; scheduled: SScheduledPlan[] | null; workout: SWorkoutRef | null }
+export interface SWeeklyTarget { week_start: string; plan_id: number; name: string; target: number; completed: number; remaining: number; dates: string[] | null }
+export interface SScheduleView {
+  from: string; to: string; today: string; timezone: string;
+  days: SScheduleDay[] | null; weekly_targets: SWeeklyTarget[] | null; unscheduled_plans: { plan_id: number; name: string }[] | null;
+}
 export interface SBatchResult { workout: SWorkout; created: boolean; sets: SSet[]; new_exercises: { id: number; name: string; similar?: string[] }[]; replayed: boolean }
 
 export const PLACEHOLDER_DEMO = '/demo-placeholder.mp4';
@@ -130,12 +139,13 @@ export function prescriptionInput(exercise: string, p: Prescription, note?: stri
 
 export function planDocument(plan: Plan, nameOf: (exerciseId: string) => string, keep: { schedule?: unknown; notes?: string; items?: SPlanItem[] }) {
   const prevItem = (name: string) => keep.items?.find((i) => normName(i.exercise) === normName(name));
+  const schedule = plan.schedule !== undefined ? plan.schedule : keep.schedule; // the UI's value wins once it has one
   return {
     format: 'workout-plan',
     version: 1,
     name: plan.name,
     ...(keep.notes ? { notes: keep.notes } : {}),
-    ...(keep.schedule ? { schedule: keep.schedule } : {}),
+    ...(schedule ? { schedule } : {}),
     items: plan.exercises.map((pe) => {
       const exercise = nameOf(pe.exerciseId);
       const prev = prevItem(exercise);
@@ -150,14 +160,42 @@ export function planDocument(plan: Plan, nameOf: (exerciseId: string) => string,
   };
 }
 
+/** Engine schedule -> UI schedule. Anything unrecognised reads as unscheduled. */
+export function toPlanSchedule(s: unknown): PlanSchedule | null {
+  const o = s as { type?: string; days?: unknown; times_per_week?: unknown } | null;
+  if (o?.type === 'weekdays' && Array.isArray(o.days)) return { type: 'weekdays', days: o.days.filter((d): d is Weekday => typeof d === 'string' && /^(mon|tue|wed|thu|fri|sat|sun)$/.test(d)) };
+  if (o?.type === 'times_per_week' && typeof o.times_per_week === 'number') return { type: 'times_per_week', times_per_week: o.times_per_week };
+  return null;
+}
+
 export function toClientPlan(sp: SPlan, exerciseIdOf: (name: string) => string): Plan {
   return {
     id: String(sp.id),
     name: sp.name,
+    schedule: toPlanSchedule(sp.schedule),
     exercises: (sp.items ?? []).map((it, i): PlanExercise => {
       const p = toPrescription(it) ?? { sets: it.target_sets, repMin: 0, repMax: 0, weight: null, rir: null, rpe: null };
       return { id: `${sp.id}:${i}`, exerciseId: exerciseIdOf(it.exercise), sets: p.sets, repMin: p.repMin, repMax: p.repMax, weight: p.weight, rir: p.rir, rpe: p.rpe };
     }),
+  };
+}
+
+// ---------- schedule view ----------
+/** GET /schedule -> the week view. `planIdOf` maps an engine plan id to the UI's plan id. */
+export function toWeekSchedule(v: SScheduleView, planIdOf: (serverId: number) => string): WeekSchedule {
+  return {
+    from: v.from,
+    to: v.to,
+    today: v.today,
+    days: (v.days ?? []).map((d) => ({
+      date: d.date,
+      weekday: d.weekday,
+      today: d.today,
+      scheduled: (d.scheduled ?? []).map((p) => ({ planId: planIdOf(p.plan_id), name: p.name, status: p.status })),
+      workout: d.workout ? { id: String(d.workout.id), planId: d.workout.plan_id != null ? planIdOf(d.workout.plan_id) : null, planName: d.workout.plan_name ?? null, workingSets: d.workout.working_sets } : null,
+    })),
+    weeklyTargets: (v.weekly_targets ?? []).map((t) => ({ weekStart: t.week_start, planId: planIdOf(t.plan_id), name: t.name, target: t.target, completed: t.completed, remaining: t.remaining, dates: t.dates ?? [] })),
+    unscheduled: (v.unscheduled_plans ?? []).map((p) => ({ planId: planIdOf(p.plan_id), name: p.name })),
   };
 }
 
