@@ -22,7 +22,7 @@ count.
   with weight > 0 and `reps ≤ 12`. Beyond 12 reps the estimate is not produced:
   extrapolating further is not believable.
 * **Max weight** = heaviest working set with a recorded weight.
-* **Training week** starts on Monday.
+* **Training week** starts on the configured day: Sunday by default, or Monday with `WORKOUT_WEEK_START=monday`. (The legacy SI-per-week view still uses Monday.)
 * **SI** (inherited from upstream) = `max(0, round1(0.2 × RPE − 0.6))`, 0 without
   RPE. See [si-formula.md](si-formula.md).
 

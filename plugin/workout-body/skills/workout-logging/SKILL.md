@@ -90,7 +90,7 @@ log is worse than a missing one.
 ## Schedules
 
 - **"What's on today / this week?"** Call `get_schedule` (default: the
-  current Monday-Sunday week in the user's timezone) and answer from it:
+  current week in the user's timezone, Sunday-Saturday by default) and answer from it:
   plans scheduled per day with status (done, started, missed, due,
   upcoming), weekly targets for "N times a week" plans (completed /
   remaining), and unscheduled plans. Never guess the schedule from memory.

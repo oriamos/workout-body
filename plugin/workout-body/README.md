@@ -13,7 +13,8 @@ Prescriptions use `target_sets` for the planned set count; only plan documents
 and set with `set_plan_schedule`; a schedule never creates a workout.
 The `nutrition-logging` skill covers food entries (calories in kcal, macros in
 grams for the whole portion): explicit values, clearly labelled estimates,
-repeating a meal by finding it and calling `copy_nutrition_entry`, corrections
+meals logged as ingredients (`items`, each with its own values, reusing
+earlier ones from `suggest_nutrition_items`), repeating a meal by finding it and calling `copy_nutrition_entry`, corrections
 by entry id with `expected_revision`, and targets set only when the user asks.
 The `weight-tracking` skill covers daily weigh-ins: a reported weight is logged
 for today in the user's timezone in kg (pounds are converted and the conversion

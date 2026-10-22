@@ -595,6 +595,7 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 		"set_plan_schedule", "get_schedule",
 		"add_nutrition_entry", "get_nutrition_entry", "list_nutrition_entries", "update_nutrition_entry",
 		"delete_nutrition_entry", "copy_nutrition_entry", "get_nutrition_day", "get_nutrition_targets", "set_nutrition_targets",
+		"suggest_nutrition_items",
 		"log_weigh_in", "get_weigh_in", "delete_weigh_in", "get_weight_trend",
 	}
 	for _, n := range required {
@@ -602,7 +603,7 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 			t.Errorf("tool %s is not registered", n)
 		}
 	}
-	for _, n := range []string{"get_workout", "get_session", "list_sessions", "get_plan", "export_plan", "list_exercises", "exercise_stats", "training_summary", "exercise_history", "get_set", "get_exercise_guide", "list_set_videos", "get_schedule", "get_nutrition_entry", "list_nutrition_entries", "get_nutrition_day", "get_nutrition_targets", "get_weigh_in", "get_weight_trend"} {
+	for _, n := range []string{"get_workout", "get_session", "list_sessions", "get_plan", "export_plan", "list_exercises", "exercise_stats", "training_summary", "exercise_history", "get_set", "get_exercise_guide", "list_set_videos", "get_schedule", "get_nutrition_entry", "list_nutrition_entries", "get_nutrition_day", "get_nutrition_targets", "suggest_nutrition_items", "get_weigh_in", "get_weight_trend"} {
 		if tool := byName[n]; tool != nil && !tool.Annotations.ReadOnlyHint {
 			t.Errorf("%s should be read-only", n)
 		}
@@ -636,7 +637,17 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 	for _, n := range []string{"add_nutrition_entry", "copy_nutrition_entry"} {
 		mustContain(t, byName[n].Description, "configured timezone", "Asia/Jerusalem", "never creates", "same key and the same payload replays", "conflict", "no key or a new key")
 	}
-	mustContain(t, byName["add_nutrition_entry"].Description, "kcal", "grams", "WHOLE portion", "never treated as 0", "never recomputed")
+	mustContain(t, byName["add_nutrition_entry"].Description, "kcal", "grams", "WHOLE portion", "never treated as 0", "never recomputed",
+		"prefer logging it as items", "values for THAT amount", "never send 0 for unknown", "computed as the sums", "suggest_nutrition_items")
+	mustContain(t, byName["update_nutrition_entry"].Description, "WHOLE new list", "recomputed", "[] removes the items")
+	mustContain(t, byName["suggest_nutrition_items"].Description, "logged before", "latest values", "scaling them by amount_g", "tell the user you scaled")
+	for _, n := range []string{"add_nutrition_entry", "update_nutrition_entry"} {
+		items := schemaMap(t, byName[n].InputSchema)["properties"].(map[string]any)["items"].(map[string]any)
+		itemProps := items["items"].(map[string]any)["properties"].(map[string]any)
+		if items["type"] != "array" || items["maxItems"] != float64(training.MaxNutritionItems) || itemProps["amount_g"].(map[string]any)["type"] != "number" || itemProps["name"] == nil {
+			t.Errorf("%s items schema = %v", n, items)
+		}
+	}
 	mustContain(t, byName["set_nutrition_targets"].Description, "never invent", "Earlier dates never change", "kcal", "grams")
 	mustContain(t, byName["delete_nutrition_entry"].Description, "confirm")
 	// log_weigh_in replaces the day's value (destructive) but repeating it is harmless (idempotent).
@@ -647,13 +658,13 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 	}
 	mustContain(t, byName["log_weigh_in"].Description, "kilograms", "pounds", "REPLACES", "retry", "configured timezone", "Asia/Jerusalem", "future", "never creates")
 	mustContain(t, byName["delete_weigh_in"].Description, "confirm")
-	mustContain(t, byName["get_weight_trend"].Description, "Monday", "only the days that have a weigh-in", "previous week", "never invent", "weekly average")
+	mustContain(t, byName["get_weight_trend"].Description, "WORKOUT_WEEK_START", "only the days that have a weigh-in", "previous week", "never invent", "weekly average")
 	mustContain(t, byName["get_weigh_in"].Description, "found=false")
 	if !byName["set_plan_schedule"].Annotations.IdempotentHint {
 		t.Error("set_plan_schedule should be idempotent")
 	}
-	mustContain(t, byName["set_plan_schedule"].Description, "NEVER creates or changes a workout", "mon..sun", "configured timezone", "Monday", "on_conflict='replace'", "clear")
-	mustContain(t, byName["get_schedule"].Description, "never creates a workout", "done =", "started =", "missed =", "due =", "upcoming =", "Monday-Sunday")
+	mustContain(t, byName["set_plan_schedule"].Description, "NEVER creates or changes a workout", "mon..sun", "configured timezone", "WORKOUT_WEEK_START", "on_conflict='replace'", "clear")
+	mustContain(t, byName["get_schedule"].Description, "never creates a workout", "done =", "started =", "missed =", "due =", "upcoming =", "Sunday to Saturday by default")
 
 	schema := schemaMap(t, byName["log_sets"].InputSchema)
 	setProps := schema["properties"].(map[string]any)["sets"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)

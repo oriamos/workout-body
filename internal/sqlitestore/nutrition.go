@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/fullfran/training-mcp/internal/training"
 )
@@ -34,6 +35,77 @@ func scanNutrition(r scanner) (training.NutritionEntry, error) {
 		e.CopiedFrom = &v
 	}
 	return e, nil
+}
+
+// getEntry reads one entry with its items.
+func getEntry(ctx context.Context, q dbtx, id int64) (training.NutritionEntry, error) {
+	e, err := scanNutrition(q.QueryRowContext(ctx, `SELECT `+nutritionCols+` FROM nutrition_entries WHERE id=?`, id))
+	if err != nil {
+		return e, err
+	}
+	list := []training.NutritionEntry{e}
+	if err := loadItems(ctx, q, list); err != nil {
+		return e, err
+	}
+	return list[0], nil
+}
+
+// loadItems fills Items and IncompleteValues of each entry, in place.
+func loadItems(ctx context.Context, q dbtx, entries []training.NutritionEntry) error {
+	idx := make(map[int64]int, len(entries))
+	for i := range entries {
+		entries[i].Items, entries[i].IncompleteValues = []training.NutritionItem{}, []string{}
+		idx[entries[i].ID] = i
+	}
+	const chunk = 500
+	for start := 0; start < len(entries); start += chunk {
+		end := min(start+chunk, len(entries))
+		args := make([]any, 0, end-start)
+		marks := make([]string, 0, end-start)
+		for _, e := range entries[start:end] {
+			args = append(args, e.ID)
+			marks = append(marks, "?")
+		}
+		rows, err := q.QueryContext(ctx, `SELECT entry_id,name,amount_g,calories_kcal,protein_g,carbs_g,fat_g FROM nutrition_items WHERE entry_id IN (`+strings.Join(marks, ",")+`) ORDER BY entry_id, position`, args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id int64
+			var it training.NutritionItem
+			var amt, cal, pro, carb, fat sql.NullFloat64
+			if err := rows.Scan(&id, &it.Name, &amt, &cal, &pro, &carb, &fat); err != nil {
+				rows.Close()
+				return err
+			}
+			it.AmountG, it.CaloriesKcal, it.ProteinG, it.CarbsG, it.FatG = ptrF(amt), ptrF(cal), ptrF(pro), ptrF(carb), ptrF(fat)
+			i := idx[id]
+			entries[i].Items = append(entries[i].Items, it)
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+	for i := range entries {
+		if len(entries[i].Items) > 0 {
+			_, entries[i].IncompleteValues = training.SumItems(entries[i].Items)
+		}
+	}
+	return nil
+}
+
+// replaceItems stores the item list of an entry, replacing any existing one.
+func replaceItems(ctx context.Context, tx *sql.Tx, id int64, items []training.NutritionItem) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM nutrition_items WHERE entry_id=?`, id); err != nil {
+		return err
+	}
+	for i, it := range items {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO nutrition_items(entry_id,position,name,amount_g,calories_kcal,protein_g,carbs_g,fat_g) VALUES (?,?,?,?,?,?,?,?)`,
+			id, i, it.Name, nf(it.AmountG), nf(it.CaloriesKcal), nf(it.ProteinG), nf(it.CarbsG), nf(it.FatG)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func requestHash(v any) (string, error) {
@@ -69,7 +141,7 @@ func idempotent(ctx context.Context, tx *sql.Tx, key, op string, payload any, wr
 			return prev, false, err
 		}
 		// Return the entry as it is now when it still exists.
-		if cur, err := scanNutrition(tx.QueryRowContext(ctx, `SELECT `+nutritionCols+` FROM nutrition_entries WHERE id=?`, prev.ID)); err == nil {
+		if cur, err := getEntry(ctx, tx, prev.ID); err == nil {
 			prev = cur
 		}
 		return prev, true, nil
@@ -107,7 +179,10 @@ func insertNutrition(ctx context.Context, tx *sql.Tx, e training.NutritionEntry)
 	if err != nil {
 		return training.NutritionEntry{}, err
 	}
-	return scanNutrition(tx.QueryRowContext(ctx, `SELECT `+nutritionCols+` FROM nutrition_entries WHERE id=?`, id))
+	if err := replaceItems(ctx, tx, id, e.Items); err != nil {
+		return training.NutritionEntry{}, err
+	}
+	return getEntry(ctx, tx, id)
 }
 
 func (s *Store) AddNutrition(ctx context.Context, e training.NutritionEntry, key string) (training.NutritionEntry, bool, error) {
@@ -120,7 +195,8 @@ func (s *Store) AddNutrition(ctx context.Context, e training.NutritionEntry, key
 	payload := struct {
 		Date, Name string
 		N          training.Nutrients
-	}{e.Date, e.Name, e.Nutrients}
+		Items      []training.NutritionItem `json:",omitempty"`
+	}{e.Date, e.Name, e.Nutrients, e.Items}
 	out, replayed, err := idempotent(ctx, tx, key, opNutritionAdd, payload, func() (training.NutritionEntry, error) {
 		return insertNutrition(ctx, tx, e)
 	})
@@ -131,7 +207,7 @@ func (s *Store) AddNutrition(ctx context.Context, e training.NutritionEntry, key
 }
 
 func (s *Store) GetNutrition(ctx context.Context, id int64) (training.NutritionEntry, error) {
-	e, err := scanNutrition(s.db.QueryRowContext(ctx, `SELECT `+nutritionCols+` FROM nutrition_entries WHERE id=?`, id))
+	e, err := getEntry(ctx, s.db, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return e, fmt.Errorf("%w: nutrition entry %d does not exist", training.ErrNotFound, id)
 	}
@@ -173,7 +249,11 @@ func (s *Store) ListNutrition(ctx context.Context, f training.NutritionFilter) (
 		}
 		out = append(out, e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	return out, loadItems(ctx, s.db, out)
 }
 
 func (s *Store) UpdateNutrition(ctx context.Context, id int64, p training.NutritionPatch, now string) (training.NutritionEntry, error) {
@@ -182,12 +262,16 @@ func (s *Store) UpdateNutrition(ctx context.Context, id int64, p training.Nutrit
 		return training.NutritionEntry{}, err
 	}
 	defer tx.Rollback()
-	e, err := scanNutrition(tx.QueryRowContext(ctx, `SELECT `+nutritionCols+` FROM nutrition_entries WHERE id=?`, id))
+	e, err := getEntry(ctx, tx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return e, fmt.Errorf("%w: nutrition entry %d does not exist", training.ErrNotFound, id)
 	}
 	if err != nil {
 		return e, err
+	}
+	setsValues := p.CaloriesKcal != nil || p.ProteinG != nil || p.CarbsG != nil || p.FatG != nil || p.ClearCalories || p.ClearProtein || p.ClearCarbs || p.ClearFat
+	if p.Items == nil && len(e.Items) > 0 && setsValues {
+		return e, &training.ValidationError{Issues: []training.Issue{{Field: "items", Message: fmt.Sprintf("nutrition entry %d is made of %d ingredients and takes its values from them; change the items instead (or replace items with an empty list to enter the values directly)", id, len(e.Items))}}}
 	}
 	if p.ExpectedRevision != nil && *p.ExpectedRevision != e.Revision {
 		return e, fmt.Errorf("%w: nutrition entry %d is at revision %d, not %d; re-read it and retry", training.ErrStale, id, e.Revision, *p.ExpectedRevision)
@@ -210,11 +294,19 @@ func (s *Store) UpdateNutrition(ctx context.Context, id int64, p training.Nutrit
 	apply(&e.ProteinG, p.ProteinG, p.ClearProtein)
 	apply(&e.CarbsG, p.CarbsG, p.ClearCarbs)
 	apply(&e.FatG, p.FatG, p.ClearFat)
+	if p.Items != nil {
+		if err := replaceItems(ctx, tx, id, *p.Items); err != nil {
+			return e, err
+		}
+		if len(*p.Items) > 0 {
+			e.Nutrients, _ = training.SumItems(*p.Items)
+		}
+	}
 	if _, err = tx.ExecContext(ctx, `UPDATE nutrition_entries SET date=?,name=?,calories_kcal=?,protein_g=?,carbs_g=?,fat_g=?,revision=revision+1,updated_at=? WHERE id=?`,
 		e.Date, e.Name, nf(e.CaloriesKcal), nf(e.ProteinG), nf(e.CarbsG), nf(e.FatG), now, id); err != nil {
 		return e, err
 	}
-	out, err := scanNutrition(tx.QueryRowContext(ctx, `SELECT `+nutritionCols+` FROM nutrition_entries WHERE id=?`, id))
+	out, err := getEntry(ctx, tx, id)
 	if err != nil {
 		return out, err
 	}
@@ -253,7 +345,7 @@ func (s *Store) CopyNutrition(ctx context.Context, id int64, date, now, key stri
 		Date string
 	}{id, date}
 	out, replayed, err := idempotent(ctx, tx, key, opNutritionCopy, payload, func() (training.NutritionEntry, error) {
-		src, err := scanNutrition(tx.QueryRowContext(ctx, `SELECT `+nutritionCols+` FROM nutrition_entries WHERE id=?`, id))
+		src, err := getEntry(ctx, tx, id)
 		if errors.Is(err, sql.ErrNoRows) {
 			return src, fmt.Errorf("%w: nutrition entry %d does not exist", training.ErrNotFound, id)
 		}
@@ -261,7 +353,7 @@ func (s *Store) CopyNutrition(ctx context.Context, id int64, date, now, key stri
 			return src, err
 		}
 		from := src.ID
-		return insertNutrition(ctx, tx, training.NutritionEntry{Date: date, Name: src.Name, Nutrients: src.Nutrients, CopiedFrom: &from, CreatedAt: now, UpdatedAt: now})
+		return insertNutrition(ctx, tx, training.NutritionEntry{Date: date, Name: src.Name, Nutrients: src.Nutrients, Items: src.Items, CopiedFrom: &from, CreatedAt: now, UpdatedAt: now})
 	})
 	if err != nil {
 		return out, false, err
@@ -381,4 +473,35 @@ func (s *Store) DeleteTargetChange(ctx context.Context, from string, expected *i
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *Store) RecentNutritionItems(ctx context.Context, query string, limit int) ([]training.NutritionItemSuggestion, error) {
+	// The latest use of each name: the item on the newest entry (by date,
+	// then log order), with the number of times the name was used.
+	q := `
+WITH ranked AS (
+ SELECT i.name, i.amount_g, i.calories_kcal, i.protein_g, i.carbs_g, i.fat_g, e.date,
+  ROW_NUMBER() OVER (PARTITION BY lower(i.name) ORDER BY e.date DESC, e.created_at DESC, e.id DESC, i.position) AS rn,
+  COUNT(*) OVER (PARTITION BY lower(i.name)) AS uses
+ FROM nutrition_items i JOIN nutrition_entries e ON e.id = i.entry_id
+ WHERE ? = '' OR instr(lower(i.name), lower(?)) > 0
+)
+SELECT name, amount_g, calories_kcal, protein_g, carbs_g, fat_g, date, uses FROM ranked WHERE rn = 1
+ORDER BY date DESC, uses DESC, lower(name) LIMIT ?`
+	rows, err := s.db.QueryContext(ctx, q, query, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []training.NutritionItemSuggestion
+	for rows.Next() {
+		var g training.NutritionItemSuggestion
+		var amt, cal, pro, carb, fat sql.NullFloat64
+		if err := rows.Scan(&g.Name, &amt, &cal, &pro, &carb, &fat, &g.LastUsed, &g.Uses); err != nil {
+			return nil, err
+		}
+		g.AmountG, g.CaloriesKcal, g.ProteinG, g.CarbsG, g.FatG = ptrF(amt), ptrF(cal), ptrF(pro), ptrF(carb), ptrF(fat)
+		out = append(out, g)
+	}
+	return out, rows.Err()
 }

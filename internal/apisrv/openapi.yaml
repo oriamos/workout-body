@@ -46,7 +46,9 @@ info:
       for the *whole portion* (not per 100 g). A nutrient that is `null` was
       not provided and is never treated as 0; values are finite and >= 0.
       Entries are dated by consumption date in the server timezone (today or
-      earlier). Day totals are computed from the entries on every read.
+      earlier). A meal can be made of `items` (ingredients with their own
+      values for the amount used); its values are then the items' sums, and
+      `GET /nutrition/items` suggests ingredients logged before. Day totals are computed from the entries on every read.
       Targets are effective-dated: a change applies from its date until the
       next change and never alters earlier dates. Nutrition never creates or
       touches a workout. Without nutrition support the endpoints answer
@@ -54,7 +56,7 @@ info:
     - **Body weight**: at most one weigh-in per local date (today or
       earlier), in kilograms (20-400). `PUT /weight/entries/{date}` is an
       upsert keyed by the date, so a retry is harmless; `If-Match` is
-      optional there. Weekly trends use Monday-start weeks and average only
+      optional there. Weekly trends use the configured week (Sunday-start by default) and average only
       the days that were logged; missing data is `null`, never interpolated.
       Without weight support the endpoints answer `501 weight_disabled`.
     - **Errors** always use the `Error` envelope. `500` responses never carry
@@ -629,7 +631,7 @@ paths:
       summary: What is planned for a range of days, and how it went
       description: |
         Lays every scheduled plan over the range (default: the current
-        Monday-Sunday week in the server timezone; with only `from`, 7 days
+        week (Sunday-Saturday by default, WORKOUT_WEEK_START) in the server timezone; with only `from`, 7 days
         from it). At most 62 days. Read-only: never creates a workout.
 
         Fixed-day (`weekdays`) plans appear on their days with a status:
@@ -641,7 +643,7 @@ paths:
         - `upcoming`: the date is in the future.
 
         Frequency (`times_per_week`) plans get one `weekly_targets` entry per
-        Monday-start week overlapping the range: `target`, `completed`
+        week overlapping the range: `target`, `completed`
         (workouts following the plan with completed working sets), `remaining`
         (never below 0) and the `dates` that counted. Plans without a schedule
         are listed in `unscheduled_plans`.
@@ -1070,7 +1072,12 @@ paths:
       description: |
         Only `name` is required. Nutrients are stored exactly as given: a
         missing value stays missing (never 0) and calories are never derived
-        from macros. With `Idempotency-Key`, a retry returns the original entry
+        from macros. A meal can instead be made of `items` (ingredients, each
+        with values for the amount used): its values are then the sums of the
+        items that provide them, and `incomplete_values` names any value only
+        some items provide. Values given directly together with `items` are
+        rejected (issue on `items`); issues inside an item name it, e.g.
+        `items[1].amount_g`. With `Idempotency-Key`, a retry returns the original entry
         (`200`, `replayed: true`); the same key with a different body is a `409`.
         Without a key, posting twice intentionally logs two portions.
       parameters:
@@ -1183,6 +1190,40 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+
+  /nutrition/items:
+    get:
+      tags: [nutrition]
+      operationId: suggestNutritionItems
+      summary: Ingredients logged before
+      description: |
+        The latest use of each ingredient name (case-insensitive), most
+        recently used first, with its values for its `amount_g` — for reusing
+        them (scaling by amount when the portion differs).
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive substring of the ingredient name.
+          schema: { type: string, maxLength: 200 }
+        - name: limit
+          in: query
+          description: 1-100, default 20.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Suggestions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/NutritionItemSuggestion" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "500": { $ref: "#/components/responses/Internal" }
         "501": { $ref: "#/components/responses/NutritionDisabled" }
 
@@ -1429,7 +1470,7 @@ paths:
       operationId: weightTrend
       summary: Weekly averages and week-over-week change
       description: |
-        The last `weeks` Monday-to-Sunday weeks ending with the week that
+        The last `weeks` weeks (configured week start, Sunday by default) ending with the week that
         contains `to`. Averages use only the days that have a weigh-in; a week
         without any has null statistics, and a change is null when either
         week is empty. Nothing is interpolated.
@@ -2150,7 +2191,7 @@ components:
             type: object
             required: [week_start, workouts, working_sets, volume_kg]
             properties:
-              week_start: { type: string, description: Monday of the week. }
+              week_start: { type: string, description: First day of the week (configured week start). }
               workouts: { type: integer }
               working_sets: { type: integer }
               volume_kg: { type: number }
@@ -2189,7 +2230,7 @@ components:
     Schedule:
       description: |
         When a plan is meant to be done, in the server timezone; weeks start on
-        Monday. Either fixed weekdays or a weekly frequency.
+        the configured day (Sunday by default). Either fixed weekdays or a weekly frequency.
       oneOf:
         - type: object
           title: Fixed weekdays
@@ -2260,7 +2301,7 @@ components:
       type: object
       required: [week_start, plan_id, name, target, completed, remaining, dates]
       properties:
-        week_start: { type: string, description: Monday of the week. }
+        week_start: { type: string, description: First day of the week (configured week start). }
         plan_id: { type: integer }
         name: { type: string }
         target: { type: integer }
@@ -2293,10 +2334,53 @@ components:
       minimum: 0
       description: For the whole portion. `null` = not provided (never treated as 0).
 
+    NutritionItem:
+      type: object
+      required: [name, amount_g, calories_kcal, protein_g, carbs_g, fat_g]
+      description: One ingredient of a meal. Values are for the amount used.
+      properties:
+        name: { type: string }
+        amount_g: { type: [number, "null"], description: Grams used; null = not given. }
+        calories_kcal: { $ref: "#/components/schemas/NutrientValue" }
+        protein_g: { $ref: "#/components/schemas/NutrientValue" }
+        carbs_g: { $ref: "#/components/schemas/NutrientValue" }
+        fat_g: { $ref: "#/components/schemas/NutrientValue" }
+
+    NutritionItemInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      description: |
+        One ingredient, with values for the amount used. Absent or `null`
+        values are not provided (never 0).
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        amount_g: { type: [number, "null"], exclusiveMinimum: 0, maximum: 5000, description: Grams used, if known. }
+        calories_kcal: { type: [number, "null"], minimum: 0, maximum: 20000 }
+        protein_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        carbs_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        fat_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+
+    NutritionItemSuggestion:
+      type: object
+      required: [name, amount_g, calories_kcal, protein_g, carbs_g, fat_g, last_used, uses]
+      description: An ingredient logged before, as last logged (values for its `amount_g`).
+      properties:
+        name: { type: string }
+        amount_g: { type: [number, "null"] }
+        calories_kcal: { $ref: "#/components/schemas/NutrientValue" }
+        protein_g: { $ref: "#/components/schemas/NutrientValue" }
+        carbs_g: { $ref: "#/components/schemas/NutrientValue" }
+        fat_g: { $ref: "#/components/schemas/NutrientValue" }
+        last_used: { type: string, description: Date of the entry it was last used in. }
+        uses: { type: integer, description: How many times an ingredient with this name was logged. }
+
     NutritionEntry:
       type: object
-      required: [id, date, name, calories_kcal, protein_g, carbs_g, fat_g, copied_from, revision, created_at, updated_at]
-      description: One portion consumed on a local date. Values are for the whole portion.
+      required: [id, date, name, calories_kcal, protein_g, carbs_g, fat_g, items, incomplete_values, copied_from, revision, created_at, updated_at]
+      description: |
+        One portion consumed on a local date. Values are for the whole portion;
+        for a meal made of `items` they are the sums of the items' values.
       properties:
         id: { type: integer }
         date: { type: string, description: Consumption date in the server timezone. }
@@ -2305,6 +2389,17 @@ components:
         protein_g: { $ref: "#/components/schemas/NutrientValue" }
         carbs_g: { $ref: "#/components/schemas/NutrientValue" }
         fat_g: { $ref: "#/components/schemas/NutrientValue" }
+        items:
+          type: array
+          description: Ingredients in order; empty for a portion logged with its own values.
+          items: { $ref: "#/components/schemas/NutritionItem" }
+        incomplete_values:
+          type: array
+          description: |
+            Values (`calories_kcal`, `protein_g`, `carbs_g`, `fat_g`) that only
+            some items provide, so the meal's sum is partial. A value no item
+            provides is `null` instead.
+          items: { type: string, enum: [calories_kcal, protein_g, carbs_g, fat_g] }
         copied_from: { type: [integer, "null"], description: Source entry of a copy; the copy is independent. }
         revision: { type: integer }
         created_at: { type: string }
@@ -2314,7 +2409,9 @@ components:
       type: object
       additionalProperties: false
       required: [name]
-      description: Absent or `null` nutrients are not provided.
+      description: |
+        Absent or `null` nutrients are not provided. Give either the portion's
+        own values or `items` (the meal's values are then their sums), not both.
       properties:
         date: { type: string, description: "`YYYY-MM-DD` or `today` (default); today or earlier." }
         name: { type: string, minLength: 1, maxLength: 200 }
@@ -2322,12 +2419,24 @@ components:
         protein_g: { type: [number, "null"], minimum: 0, maximum: 2000, description: grams for the whole portion. }
         carbs_g: { type: [number, "null"], minimum: 0, maximum: 2000, description: grams for the whole portion. }
         fat_g: { type: [number, "null"], minimum: 0, maximum: 2000, description: grams for the whole portion. }
+        items:
+          type: [array, "null"]
+          maxItems: 50
+          description: Ingredients of the meal, each with values for the amount used. `null` = none.
+          items: { $ref: "#/components/schemas/NutritionItemInput" }
 
     NutritionEntryPatch:
       type: object
       additionalProperties: false
       minProperties: 1
-      description: Merge-patch. Absent = unchanged; `null` clears a nutrient back to not provided; `null` on `name` or `date` is rejected.
+      description: |
+        Merge-patch. Absent = unchanged; `null` clears a nutrient back to not
+        provided; `null` on `name`, `date` or `items` is rejected. `items`
+        replaces the whole ingredient list: a non-empty list recomputes the
+        values from the items (values must not be given alongside it); `[]`
+        removes the items and keeps the current sums as the entry's own,
+        directly editable values. Values cannot be set directly on an entry
+        that has items unless `items` is replaced in the same patch.
       properties:
         name: { type: string, minLength: 1, maxLength: 200 }
         date: { type: string }
@@ -2335,6 +2444,10 @@ components:
         protein_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
         carbs_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
         fat_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        items:
+          type: array
+          maxItems: 50
+          items: { $ref: "#/components/schemas/NutritionItemInput" }
 
     NutritionEntryResult:
       type: object
@@ -2420,9 +2533,9 @@ components:
     WeightWeek:
       type: object
       required: [week_start, week_end, days_logged, average_kg, min_kg, max_kg, change_kg, change_pct]
-      description: One Monday-to-Sunday week. Statistics use only the days with a weigh-in.
+      description: One week (from the configured week start). Statistics use only the days with a weigh-in.
       properties:
-        week_start: { type: string, description: The Monday. }
+        week_start: { type: string, description: First day of the week (configured week start). }
         week_end: { type: string, description: The Sunday. }
         days_logged: { type: integer }
         average_kg: { type: [number, "null"], description: Mean of the logged days; null when none. }
@@ -2436,7 +2549,7 @@ components:
       type: object
       required: [from, to, today, weeks, entries, latest, overall_change_kg]
       properties:
-        from: { type: string, description: Monday of the first week. }
+        from: { type: string, description: First day of the first week. }
         to: { type: string }
         today: { type: string }
         weeks:

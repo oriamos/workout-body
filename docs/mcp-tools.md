@@ -3,7 +3,7 @@
 <!-- GENERATED from the registered tools by internal/mcpsrv/docs_test.go. Do not edit by hand; run:
      go test ./internal/mcpsrv -run ToolReference -update-docs -->
 
-This server registers 65 tools. Descriptions below are exactly what the model receives.
+This server registers 66 tools. Descriptions below are exactly what the model receives.
 
 Worked examples with real calls and results: [mcp-examples.md](mcp-examples.md). Connection and plugin setup: [plugin-setup.md](plugin-setup.md).
 
@@ -75,6 +75,7 @@ Conventions that apply to every tool:
 | [`set_volume_landmarks`](#set_volume_landmarks) | destructive write |
 | [`start_session`](#start_session) | write (idempotent) |
 | [`suggest_load`](#suggest_load) | read-only |
+| [`suggest_nutrition_items`](#suggest_nutrition_items) | read-only |
 | [`swap_session_exercise`](#swap_session_exercise) | destructive write |
 | [`training_summary`](#training_summary) | read-only |
 | [`update_nutrition_entry`](#update_nutrition_entry) | destructive write |
@@ -100,7 +101,7 @@ Make another name resolve to an existing exercise. An alias that is already an e
 
 **Add nutrition entry** — write
 
-Log one food or meal eaten. Returns the persisted entry (id, date, name, values, revision, created_at, updated_at) and replayed. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g. Omit a value that is unknown: omitted means 'not recorded' and is never treated as 0; send 0 only for an explicit zero. Calories are stored exactly as given and never recomputed from macros. Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today. Food cannot be logged for a future date. Nutrition never creates or changes a workout. idempotency_key (optional, at most 128 characters, global to this single user): retrying with the same key and the same payload replays the stored entry (replayed=true) without writing again; the same key with a different payload is a conflict. A meal eaten twice on purpose needs no key or a new key.
+Log one food or meal eaten. Returns the persisted entry (id, date, name, values, items, incomplete_values, revision, created_at, updated_at) and replayed. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g. Omit a value that is unknown: omitted means 'not recorded' and is never treated as 0; send 0 only for an explicit zero. Calories are stored exactly as given and never recomputed from macros. items (optional): when the user describes a meal with several components (e.g. 'yogurt with granola and blueberries'), prefer logging it as items - one per ingredient, each with its own name, amount_g (grams used, if known) and values for THAT amount (not per 100 g). Omit an unknown item value, never send 0 for unknown. The meal's calories_kcal/protein_g/carbs_g/fat_g are then computed as the sums of the items, so do not also give them on the meal; incomplete_values in the result names any value only some items provide (that sum is partial). Check suggest_nutrition_items first for ingredients the user logged before and reuse their values. Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today. Food cannot be logged for a future date. Nutrition never creates or changes a workout. idempotency_key (optional, at most 128 characters, global to this single user): retrying with the same key and the same payload replays the stored entry (replayed=true) without writing again; the same key with a different payload is a conflict. A meal eaten twice on purpose needs no key or a new key.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -109,6 +110,7 @@ Log one food or meal eaten. Returns the persisted entry (id, date, name, values,
 | `date` | string | no | Local date YYYY-MM-DD it was eaten. Omit for today. |
 | `fat_g` | number | no | Fat of the whole portion in grams, 0-2000. Omit if unknown. |
 | `idempotency_key` | string | no | Optional retry key. Same key + same payload replays; different payload is a conflict. |
+| `items` | array of object | no | Ingredients of the meal (at most 50), each with values for the amount used. When given, do not give calories_kcal/protein_g/carbs_g/fat_g on the meal: they are computed as the items' sums. |
 | `name` | string | yes | What was eaten, e.g. 'chicken and rice, large plate'. 1-200 characters. |
 | `protein_g` | number | no | Protein of the whole portion in grams, 0-2000. Omit if unknown. |
 
@@ -186,7 +188,7 @@ Log an earlier meal again: creates a NEW, independent entry with the same name a
 
 **Create plan** — write
 
-Create a reusable workout plan: an ordered list of exercises, each with target_sets and optional rep range, target load, RPE and RIR, plus an optional schedule. A plan prescribes what is planned (sets, rep range, optional target load in kg, target RPE 1-10, target RIR 0-10); omitted targets mean 'not prescribed'. Plans never create completed sets. A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency; the week starts on Monday. A schedule NEVER creates or changes a workout. To create from a plan document use import_plan.
+Create a reusable workout plan: an ordered list of exercises, each with target_sets and optional rep range, target load, RPE and RIR, plus an optional schedule. A plan prescribes what is planned (sets, rep range, optional target load in kg, target RPE 1-10, target RIR 0-10); omitted targets mean 'not prescribed'. Plans never create completed sets. A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency per week; weeks follow the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START). A schedule NEVER creates or changes a workout. To create from a plan document use import_plan.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -348,11 +350,11 @@ Read one plan with its revision (pass it as expected_revision to replace_plan/de
 
 **Get schedule** — read-only
 
-What is planned for a range of local dates (default: the current Monday-Sunday week in the configured timezone). Read-only: never creates a workout. Returns today and timezone; days[] with each date's weekday, the plans scheduled on it by fixed weekdays and their status, and the workout that exists on that date (id, plan, working sets, revision) if any; weekly_targets[] for times_per_week plans per Monday-start week (target, completed = workouts following the plan with completed working sets, remaining, dates); and unscheduled_plans[]. Statuses: done = a workout following this plan has completed working sets on that date; started = a workout following this plan exists but has no completed working sets yet; missed = the date has passed without it; due = today and not done yet; upcoming = a future date. A missed day is information only. To follow a scheduled plan, pass its plan_id to log_sets. A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency; the week starts on Monday. A schedule NEVER creates or changes a workout.
+What is planned for a range of local dates (default: the current week in the configured timezone; the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START)). Read-only: never creates a workout. Returns today and timezone; days[] with each date's weekday, the plans scheduled on it by fixed weekdays and their status, and the workout that exists on that date (id, plan, working sets, revision) if any; weekly_targets[] for times_per_week plans per week (target, completed = workouts following the plan with completed working sets, remaining, dates); and unscheduled_plans[]. Statuses: done = a workout following this plan has completed working sets on that date; started = a workout following this plan exists but has no completed working sets yet; missed = the date has passed without it; due = today and not done yet; upcoming = a future date. A missed day is information only. To follow a scheduled plan, pass its plan_id to log_sets. A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency per week; weeks follow the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START). A schedule NEVER creates or changes a workout.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `from` | string | no | Inclusive first local date YYYY-MM-DD. Omit both from and to for the current Monday-Sunday week; with only from, the 7 days starting there. |
+| `from` | string | no | Inclusive first local date YYYY-MM-DD. Omit both from and to for the current week (the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START)); with only from, the 7 days starting there. |
 | `to` | string | no | Inclusive last local date YYYY-MM-DD; requires from. At most 62 days. |
 
 ## get_session
@@ -389,7 +391,7 @@ Read the weigh-in of one local date (today when omitted). found=false (and no we
 
 **Get weight trend** — read-only
 
-How the user's body weight is going: the last `weeks` weeks (default 8) ending with the week that contains `to` (default today), oldest first, each with days_logged, average_kg, min_kg, max_kg, change_kg, change_pct and trend; plus the weigh-ins in the range, latest (the most recent weigh-in on or before `to`) and overall_change_kg (last week with data minus the first one). Weeks run Monday to Sunday. A week's average_kg (and min_kg/max_kg) uses only the days that have a weigh-in (days_logged says how many); change_kg/change_pct compare it with the previous week's average. A null average or change means there is not enough data (no weigh-in that week or the week before) - report it as missing and never invent, estimate or interpolate a number for it. trend is up, down or flat (|change_kg| < 0.1 kg). Daily weight fluctuates; the weekly average is the signal. Read-only. Body weight is in kilograms (20-400 kg). If the user gives pounds, convert to kg yourself (1 lb = 0.45359237 kg) and tell them you converted.
+How the user's body weight is going: the last `weeks` weeks (default 8) ending with the week that contains `to` (default today), oldest first, each with days_logged, average_kg, min_kg, max_kg, change_kg, change_pct and trend; plus the weigh-ins in the range, latest (the most recent weigh-in on or before `to`) and overall_change_kg (last week with data minus the first one). Weeks follow the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START); week_start/week_end give each week's dates. A week's average_kg (and min_kg/max_kg) uses only the days that have a weigh-in (days_logged says how many); change_kg/change_pct compare it with the previous week's average. A null average or change means there is not enough data (no weigh-in that week or the week before) - report it as missing and never invent, estimate or interpolate a number for it. trend is up, down or flat (|change_kg| < 0.1 kg). Daily weight fluctuates; the weekly average is the signal. Read-only. Body weight is in kilograms (20-400 kg). If the user gives pounds, convert to kg yourself (1 lb = 0.45359237 kg) and tell them you converted.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -719,7 +721,7 @@ Add an exercise to a saved plan, or replace its prescription. Editing a plan nev
 
 **Set plan schedule** — destructive write
 
-Set or replace a plan's schedule; pass schedule null (or omit it) to clear it. Returns the updated plan with its new revision. A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency; the week starts on Monday. A schedule NEVER creates or changes a workout. Use explicit days or a count exactly as the user stated them ('Mondays and Thursdays' -> days ['mon','thu']; 'three times a week' -> times_per_week 3). Replacing a plan via import_plan(on_conflict='replace') with a document lacking schedule clears it. expected_revision (optional) makes the write fail with a conflict if the target changed since you read it; on conflict re-read and retry.
+Set or replace a plan's schedule; pass schedule null (or omit it) to clear it. Returns the updated plan with its new revision. A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency per week; weeks follow the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START). A schedule NEVER creates or changes a workout. Use explicit days or a count exactly as the user stated them ('Mondays and Thursdays' -> days ['mon','thu']; 'three times a week' -> times_per_week 3). Replacing a plan via import_plan(on_conflict='replace') with a document lacking schedule clears it. expected_revision (optional) makes the write fail with a conflict if the target changed since you read it; on conflict re-read and retry.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -760,6 +762,17 @@ Advisory only: suggest the next working weight (kg) for an exercise, judged agai
 |---|---|---|---|
 | `exercise` | string | yes | Exercise name or alias. |
 
+## suggest_nutrition_items
+
+**Suggest nutrition items** — read-only
+
+Ingredients the user logged before (as items of earlier meals), with their latest values: name, amount_g and the values for that amount, last_used date and uses count, most recently used first. Check it before logging a meal as items and reuse these values, scaling them by amount_g when the portion differs (e.g. 150 g when 200 g was logged: multiply by 0.75) - and tell the user you scaled. A value that is null was not recorded; keep it omitted rather than guessing 0. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `limit` | integer | no | Maximum ingredients; defaults to 20, at most 100. |
+| `query` | string | no | Case-insensitive text to match in the ingredient name, e.g. 'yogurt'. Omit for the most recent ingredients. |
+
 ## swap_session_exercise
 
 **Swap workout exercise** — destructive write
@@ -776,7 +789,7 @@ Substitute one exercise for another in a workout's prescription, keeping the sam
 
 **Training summary** — read-only
 
-Overview of completed working sets over a local date range (default: the 28 days ending today in the configured timezone): workouts, working and warm-up sets, volume in kg, sets missing weight/reps, and breakdowns by exercise, muscle group and week (Monday start).
+Overview of completed working sets over a local date range (default: the 28 days ending today in the configured timezone): workouts, working and warm-up sets, volume in kg, sets missing weight/reps, and breakdowns by exercise, muscle group and week (the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START)).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -787,7 +800,7 @@ Overview of completed working sets over a local date range (default: the 28 days
 
 **Update nutrition entry** — destructive write
 
-Correct one nutrition entry by id (read it first). Only the fields given change; omitted fields stay as stored. Use clear to turn a value back into 'not recorded'. Returns the persisted entry with its new revision. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g. Omit a value that is unknown: omitted means 'not recorded' and is never treated as 0; send 0 only for an explicit zero. Calories are stored exactly as given and never recomputed from macros. expected_revision (optional) makes the write fail with a conflict if the target changed since you read it; on conflict re-read and retry.
+Correct one nutrition entry by id (read it first). Only the fields given change; omitted fields stay as stored. Use clear to turn a value back into 'not recorded'. Returns the persisted entry with its new revision. For a meal made of items, change the ingredients by sending items with the WHOLE new list (values are recomputed from it); its values cannot be set directly unless items is replaced in the same call ([] removes the items and keeps the sums as directly editable values). Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g. Omit a value that is unknown: omitted means 'not recorded' and is never treated as 0; send 0 only for an explicit zero. Calories are stored exactly as given and never recomputed from macros. expected_revision (optional) makes the write fail with a conflict if the target changed since you read it; on conflict re-read and retry.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -798,6 +811,7 @@ Correct one nutrition entry by id (read it first). Only the fields given change;
 | `entry_id` | integer | yes | Id of the entry to change (from get_nutrition_day or list_nutrition_entries). |
 | `expected_revision` | integer | no | The entry's revision from your last read; rejected with a conflict if it changed since. |
 | `fat_g` | number | no | Fat of the whole portion in grams, 0-2000. Omit if unknown. |
+| `items` | array of object | no | Replaces the WHOLE ingredient list (send every item to keep, not only the changed one). A non-empty list recomputes the meal's values from the items (do not also send values or clear). An empty list [] removes the items and keeps the current sums as the entry's own values, which can then be edited directly. |
 | `name` | string | no | New name. |
 | `protein_g` | number | no | Protein of the whole portion in grams, 0-2000. Omit if unknown. |
 
@@ -857,7 +871,7 @@ _No parameters._
 
 **Weekly volume** — read-only
 
-Legacy SI and set count per muscle group per training week (Monday start), newest week first. SI is derived from RPE and is 0 for sets without RPE. Prefer training_summary for kg volume.
+Legacy SI and set count per muscle group per training week (Monday start, legacy), newest week first. SI is derived from RPE and is 0 for sets without RPE. Prefer training_summary for kg volume.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

@@ -51,7 +51,9 @@ explicit values and rejects anything invalid.
 ## Nutrition
 
 A simple food log ([nutrition.md](nutrition.md)): one entry per portion eaten
-with whole-portion kcal/protein/carbs/fat (missing ≠ 0), daily summaries computed
+with whole-portion kcal/protein/carbs/fat (missing ≠ 0), or a meal made of
+ingredients each with its own values (the meal's totals are their sums, and
+earlier ingredients are suggested for reuse), daily summaries computed
 from entries, optional effective-dated targets, copy of previous meals, MCP
 tools for the assistant and a basic UI. No food database, recognition, barcode
 scanning or templates.
@@ -59,7 +61,7 @@ scanning or templates.
 ## Body weight
 
 A daily weigh-in log ([weight.md](weight.md)): one value in kg per local date
-(logging again replaces it, so retries are harmless), weekly Monday-start
+(logging again replaces it, so retries are harmless), weekly (Sunday-start by default)
 averages over the logged days with the week-over-week change (null when there is
 not enough data, never interpolated), MCP tools and a plugin skill. No
 measurements, goals, projections or medical advice.
@@ -68,7 +70,7 @@ measurements, goals, projections or medical advice.
 
 An in-app chatbot or LLM calls, multi-user accounts or RBAC,
 OAuth, billing, cloud sync, coaching features, automatic workout creation or
-reminders from a schedule, calendars beyond a Monday–Sunday week, a database
+reminders from a schedule, calendars beyond a single week, a database
 server or message broker.
 
 ## Units and conventions

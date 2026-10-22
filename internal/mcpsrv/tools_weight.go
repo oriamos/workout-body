@@ -12,7 +12,7 @@ import (
 const (
 	weightUnits = "Body weight is in kilograms (20-400 kg). If the user gives pounds, convert to kg yourself (1 lb = 0.45359237 kg) and tell them you converted."
 	weightDates = "Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today there. A weigh-in cannot be logged for a future date. Body weight never creates or changes a workout."
-	weightTrend = "Weeks run Monday to Sunday. A week's average_kg (and min_kg/max_kg) uses only the days that have a weigh-in (days_logged says how many); change_kg/change_pct compare it with the previous week's average. " +
+	weightTrend = "Weeks follow the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START); week_start/week_end give each week's dates. A week's average_kg (and min_kg/max_kg) uses only the days that have a weigh-in (days_logged says how many); change_kg/change_pct compare it with the previous week's average. " +
 		"A null average or change means there is not enough data (no weigh-in that week or the week before) - report it as missing and never invent, estimate or interpolate a number for it. trend is up, down or flat (|change_kg| < 0.1 kg)."
 )
 

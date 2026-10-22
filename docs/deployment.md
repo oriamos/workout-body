@@ -11,6 +11,7 @@ localhost.
 | `MCP_BEARER_TOKEN` | required | Static bearer token for `/mcp` and `/api/v1`. Use a long random value. |
 | `MCP_AUTH_DISABLED=1` | off | Disables auth. Development only. |
 | `WORKOUT_TIMEZONE` | `Asia/Jerusalem` | IANA zone that decides the workout date. The binary embeds the zone database. |
+| `WORKOUT_WEEK_START` | `sunday` | First day of the week for schedules, frequency targets, training summaries and weight trends: `sunday` or `monday`. |
 | `TRAINING_DB_PATH` | `~/.local/share/training-mcp/training.db` | SQLite file. |
 | `MEDIA_DIR` | `media/` beside the database (`/data/media` in Docker) | Uploaded videos. If it cannot be created the server keeps running with video storage disabled. |
 | `MAX_VIDEO_MB` | `200` (1–4096) | Video upload size limit. |

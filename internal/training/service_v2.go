@@ -511,7 +511,7 @@ func (s *Service) TrainingSummary(ctx context.Context, from, to string) (Trainin
 			continue
 		}
 		workouts[r.Date] = true
-		wk := weekStart(r.Date)
+		wk := s.weekStart(r.Date)
 		w := weeks[wk]
 		if w == nil {
 			w = &WeekSummary{WeekStart: wk}
@@ -573,13 +573,18 @@ func (s *Service) TrainingSummary(ctx context.Context, from, to string) (Trainin
 	return out, nil
 }
 
-// weekStart returns the Monday on or before date.
-func weekStart(date string) string {
+// weekStart returns the first day of the week (the configured week start,
+// Monday by default) on or before date.
+func (s *Service) weekStart(date string) string {
+	return weekStartOn(date, s.WeekStartDay())
+}
+
+func weekStartOn(date string, first time.Weekday) string {
 	t, err := time.Parse("2006-01-02", date)
 	if err != nil {
 		return date
 	}
-	back := (int(t.Weekday()) + 6) % 7
+	back := (int(t.Weekday()) - int(first) + 7) % 7
 	return t.AddDate(0, 0, -back).Format("2006-01-02")
 }
 

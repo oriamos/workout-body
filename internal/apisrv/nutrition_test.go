@@ -340,10 +340,146 @@ func TestNutritionDisabled(t *testing.T) {
 		{"GET", "/api/v1/nutrition/days/today"},
 		{"GET", "/api/v1/nutrition/days"},
 		{"GET", "/api/v1/nutrition/targets"},
+		{"GET", "/api/v1/nutrition/items"},
 		{"DELETE", "/api/v1/nutrition/entries/1"},
 	} {
 		expectErr(t, e.do(c.method, c.path, nil, h("If-Match", "*")), 501, "nutrition_disabled")
 	}
 	expectErr(t, e.do("POST", "/api/v1/nutrition/entries", map[string]any{"name": "x"}, nil), 501, "nutrition_disabled")
 	expectErr(t, e.do("PUT", "/api/v1/nutrition/targets/today", map[string]any{"fat_g": 1}, h("If-Match", "0")), 501, "nutrition_disabled")
+}
+
+func items(m map[string]any) []any { return list(m, "items") }
+
+func TestNutritionMealWithItems(t *testing.T) {
+	e := newEnv(t)
+	bowl := map[string]any{"name": "Yogurt bowl", "items": []any{
+		map[string]any{"name": " Greek  yogurt ", "amount_g": 200, "calories_kcal": 194, "protein_g": 20, "carbs_g": 7.6, "fat_g": 10},
+		map[string]any{"name": "Granola", "amount_g": 40, "calories_kcal": 180, "protein_g": 4, "carbs_g": 26, "fat_g": 6.5},
+		map[string]any{"name": "Blueberries", "amount_g": 80, "calories_kcal": 46, "protein_g": 0.6, "carbs_g": 11.6, "fat_g": nil}, // null = unknown
+	}}
+	m, r := postEntry(t, e, bowl, nil, 201)
+	en := entryOf(m)
+	if en["calories_kcal"] != 420.0 || en["protein_g"] != 24.6 || en["carbs_g"] != 45.2 || en["fat_g"] != 16.5 {
+		t.Fatalf("sums = %v", en)
+	}
+	if fmt.Sprint(en["incomplete_values"]) != "[fat_g]" || len(items(en)) != 3 {
+		t.Fatalf("items/incomplete = %v", en)
+	}
+	first := items(en)[0].(map[string]any)
+	if first["name"] != "Greek yogurt" || first["amount_g"] != 200.0 || items(en)[2].(map[string]any)["fat_g"] != nil {
+		t.Fatalf("item = %v", items(en))
+	}
+	path := fmt.Sprintf("/api/v1/nutrition/entries/%d", num(en["id"]))
+	if g := expect(t, e.do("GET", path, nil, nil), 200); len(items(g)) != 3 || g["calories_kcal"] != 420.0 {
+		t.Fatalf("get = %v", g)
+	}
+	// The day counts the known part of fat and flags the meal.
+	d := expect(t, e.do("GET", "/api/v1/nutrition/days/today", nil, nil), 200)
+	if f := summary(d, "fat_g"); f["consumed"] != 16.5 || num(f["entries_missing_value"]) != 1 {
+		t.Fatalf("fat = %v", f)
+	}
+	if c := summary(d, "calories_kcal"); c["consumed"] != 420.0 || num(c["entries_missing_value"]) != 0 {
+		t.Fatalf("calories = %v", c)
+	}
+	// A plain entry reads back with empty lists, not null.
+	plain, _ := postEntry(t, e, map[string]any{"name": "apple", "calories_kcal": 95, "items": nil}, nil, 201)
+	if pe := entryOf(plain); pe["items"] == nil || len(items(pe)) != 0 || fmt.Sprint(pe["incomplete_values"]) != "[]" {
+		t.Fatalf("plain = %v", pe)
+	}
+
+	// Direct values on a meal made of items are rejected...
+	tag := r.etag()
+	hasIssue(t, expectErr(t, e.do("PATCH", path, map[string]any{"calories_kcal": 500}, h("If-Match", tag)), 400, "validation_error"), "items")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, map[string]any{"calories_kcal": 500, "items": []any{map[string]any{"name": "x", "calories_kcal": 1}}}, h("If-Match", tag)), 400, "validation_error"), "items")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, `{"items":null}`, h("If-Match", tag)), 400, "validation_error"), "items")
+	// ...replacing the items recomputes the values.
+	r = e.do("PATCH", path, map[string]any{"items": []any{
+		map[string]any{"name": "Greek yogurt", "amount_g": 100, "calories_kcal": 97, "protein_g": 10, "carbs_g": 3.8, "fat_g": 5},
+		map[string]any{"name": "Honey", "amount_g": 10, "calories_kcal": 30.4, "carbs_g": 8.2},
+	}}, h("If-Match", tag))
+	p := expect(t, r, 200)
+	if p["calories_kcal"] != 127.4 || p["carbs_g"] != 12.0 || p["protein_g"] != 10.0 || len(items(p)) != 2 ||
+		fmt.Sprint(p["incomplete_values"]) != "[protein_g fat_g]" || r.etag() == tag {
+		t.Fatalf("replaced items = %v", p)
+	}
+	// items: [] removes them; the sums stay as directly editable values.
+	r = e.do("PATCH", path, `{"items":[]}`, h("If-Match", r.etag(), "Content-Type", "application/merge-patch+json"))
+	p = expect(t, r, 200)
+	if len(items(p)) != 0 || p["calories_kcal"] != 127.4 || fmt.Sprint(p["incomplete_values"]) != "[]" {
+		t.Fatalf("removed items = %v", p)
+	}
+	if p = expect(t, e.do("PATCH", path, map[string]any{"calories_kcal": 130}, h("If-Match", r.etag())), 200); p["calories_kcal"] != 130.0 {
+		t.Fatalf("direct edit after removing items = %v", p)
+	}
+}
+
+func TestNutritionItemsValidation(t *testing.T) {
+	e := newEnv(t)
+	ok := map[string]any{"name": "Rice", "amount_g": 100, "calories_kcal": 130}
+	for _, tc := range []struct {
+		body  any
+		field string
+	}{
+		{map[string]any{"name": "m", "calories_kcal": 100, "items": []any{ok}}, "items"},
+		{map[string]any{"name": "m", "items": []any{ok, map[string]any{"name": "Oil", "amount_g": 0}}}, "items[1].amount_g"},
+		{map[string]any{"name": "m", "items": []any{ok, map[string]any{"name": "Oil", "amount_g": 5001}}}, "items[1].amount_g"},
+		{map[string]any{"name": "m", "items": []any{ok, map[string]any{"name": "Oil", "amount_g": "ten"}}}, "items[1].amount_g"},
+		{map[string]any{"name": "m", "items": []any{map[string]any{"name": " "}}}, "items[0].name"},
+		{map[string]any{"name": "m", "items": []any{map[string]any{"amount_g": 5}}}, "items[0].name"},
+		{map[string]any{"name": "m", "items": []any{map[string]any{"name": "x", "fat_g": -1}}}, "items[0].fat_g"},
+		{map[string]any{"name": "m", "items": []any{map[string]any{"name": "x", "protein_g": true}}}, "items[0].protein_g"},
+		{map[string]any{"name": "m", "items": []any{map[string]any{"name": "x", "sugar_g": 3}}}, "items[0].sugar_g"},
+		{map[string]any{"name": "m", "items": []any{ok, "rice"}}, "items[1]"},
+		{map[string]any{"name": "m", "items": []any{ok, nil}}, "items[1]"},
+		{map[string]any{"name": "m", "items": "rice"}, "items"},
+	} {
+		hasIssue(t, expectErr(t, e.do("POST", "/api/v1/nutrition/entries", tc.body, nil), 400, "validation_error"), tc.field)
+	}
+	many := make([]any, training.MaxNutritionItems+1)
+	for i := range many {
+		many[i] = ok
+	}
+	hasIssue(t, expectErr(t, e.do("POST", "/api/v1/nutrition/entries", map[string]any{"name": "m", "items": many}, nil), 400, "validation_error"), "items")
+
+	m, _ := postEntry(t, e, map[string]any{"name": "m", "items": []any{ok}}, nil, 201)
+	path := fmt.Sprintf("/api/v1/nutrition/entries/%d", num(entryOf(m)["id"]))
+	hasIssue(t, expectErr(t, e.do("PATCH", path, map[string]any{"items": []any{ok, map[string]any{"name": "x", "amount_g": -2}}}, h("If-Match", "*")), 400, "validation_error"), "items[1].amount_g")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, map[string]any{"items": []any{map[string]any{"name": "x", "kcal": 2}}}, h("If-Match", "*")), 400, "validation_error"), "items[0].kcal")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, map[string]any{"items": map[string]any{"name": "x"}}, h("If-Match", "*")), 400, "validation_error"), "items")
+	hasIssue(t, expectErr(t, e.do("PATCH", path, map[string]any{"fat_g": nil, "items": []any{ok}}, h("If-Match", "*")), 400, "validation_error"), "items")
+}
+
+func TestNutritionCopyKeepsItemsAndSuggestions(t *testing.T) {
+	e := newEnv(t)
+	src, _ := postEntry(t, e, map[string]any{"name": "Oats", "date": "2026-03-08", "items": []any{
+		map[string]any{"name": "Rolled oats", "amount_g": 50, "calories_kcal": 190, "protein_g": 6.5},
+		map[string]any{"name": "Milk", "amount_g": 200, "calories_kcal": 100, "protein_g": 6.8},
+	}}, nil, 201)
+	cp := entryOf(expect(t, e.do("POST", fmt.Sprintf("/api/v1/nutrition/entries/%d/copy", num(entryOf(src)["id"])), nil, nil), 201))
+	if len(items(cp)) != 2 || cp["calories_kcal"] != 290.0 || items(cp)[1].(map[string]any)["name"] != "Milk" {
+		t.Fatalf("copy = %v", cp)
+	}
+	postEntry(t, e, map[string]any{"name": "Coffee", "items": []any{map[string]any{"name": "milk", "amount_g": 100, "calories_kcal": 50}}}, nil, 201)
+
+	got := items(expect(t, e.do("GET", "/api/v1/nutrition/items", nil, nil), 200))
+	if len(got) != 2 {
+		t.Fatalf("suggestions = %v", got)
+	}
+	milk := got[0].(map[string]any)
+	if milk["name"] != "milk" || milk["amount_g"] != 100.0 || milk["calories_kcal"] != 50.0 || num(milk["uses"]) != 3 || milk["last_used"] != "2026-03-10" {
+		t.Fatalf("latest milk = %v", milk)
+	}
+	if oats := got[1].(map[string]any); oats["name"] != "Rolled oats" || num(oats["uses"]) != 2 || oats["protein_g"] != 6.5 || oats["fat_g"] != nil {
+		t.Fatalf("oats = %v", oats)
+	}
+	if q := items(expect(t, e.do("GET", "/api/v1/nutrition/items?q=OAT&limit=5", nil, nil), 200)); len(q) != 1 {
+		t.Fatalf("q = %v", q)
+	}
+	if l := items(expect(t, e.do("GET", "/api/v1/nutrition/items?limit=1", nil, nil), 200)); len(l) != 1 {
+		t.Fatalf("limit = %v", l)
+	}
+	hasIssue(t, expectErr(t, e.do("GET", "/api/v1/nutrition/items?limit=101", nil, nil), 400, "validation_error"), "limit")
+	hasIssue(t, expectErr(t, e.do("GET", "/api/v1/nutrition/items?limit=x", nil, nil), 400, "validation_error"), "limit")
+	hasIssue(t, expectErr(t, e.do("GET", "/api/v1/nutrition/items?q="+strings.Repeat("a", 201), nil, nil), 400, "validation_error"), "q")
 }

@@ -15,10 +15,10 @@ func weekAt(t *testing.T, tr map[string]any, i int) map[string]any {
 }
 
 // The body-weight flow on the real binary, MCP writes and HTTP reads against
-// one database: three weigh-ins over two Monday-start weeks via MCP -> trend
+// one database: three weigh-ins over two Sunday-start weeks (the default week) via MCP -> trend
 // over HTTP -> replace one via PUT with If-Match -> delete one -> the weekly
 // averages and the week-over-week change recompute. Synthetic data on fixed
-// past dates (weeks of Mon 2026-01-05 and Mon 2026-01-12), so the result does
+// past dates (weeks of Sun 2026-01-04 and Sun 2026-01-11), so the result does
 // not depend on the real clock.
 func TestWeightAcceptanceFlow(t *testing.T) {
 	srv := start(t, "")
@@ -43,13 +43,13 @@ func TestWeightAcceptanceFlow(t *testing.T) {
 	}
 
 	// 2. The trend over HTTP.
-	trendPath := "/api/v1/weight/trend?to=2026-01-18&weeks=2"
+	trendPath := "/api/v1/weight/trend?to=2026-01-17&weeks=2"
 	tr := srv.do("GET", trendPath, nil).Map(t)
 	w1, w2 := weekAt(t, tr, 0), weekAt(t, tr, 1)
-	if tr["from"] != "2026-01-05" || w1["week_start"] != "2026-01-05" || num(w1["days_logged"]) != 2 || !approx(num(w1["average_kg"]), 79.8) {
+	if tr["from"] != "2026-01-04" || w1["week_start"] != "2026-01-04" || num(w1["days_logged"]) != 2 || !approx(num(w1["average_kg"]), 79.8) {
 		t.Fatalf("week 1: %v", w1)
 	}
-	if w2["week_start"] != "2026-01-12" || num(w2["days_logged"]) != 1 || !approx(num(w2["average_kg"]), 79.2) ||
+	if w2["week_start"] != "2026-01-11" || num(w2["days_logged"]) != 1 || !approx(num(w2["average_kg"]), 79.2) ||
 		!approx(num(w2["change_kg"]), -0.6) || w2["trend"] != "down" {
 		t.Fatalf("week 2: %v", w2)
 	}
@@ -100,7 +100,7 @@ func TestWeightAcceptanceFlow(t *testing.T) {
 	if num(w1["days_logged"]) != 1 || !approx(num(w1["average_kg"]), 80.0) || !approx(num(w2["change_kg"]), -1.2) || !approx(num(tr["overall_change_kg"]), -1.2) {
 		t.Fatalf("after delete: %v / %v", w1, w2)
 	}
-	mt := tool(t, cs, "get_weight_trend", map[string]any{"to": "2026-01-18", "weeks": 2})
+	mt := tool(t, cs, "get_weight_trend", map[string]any{"to": "2026-01-17", "weeks": 2})
 	if w := weekAt(t, mt, 1); !approx(num(w["average_kg"]), 78.8) || !approx(num(w["change_kg"]), -1.2) || mt["timezone"] == "" {
 		t.Fatalf("MCP trend after delete: %v", mt)
 	}

@@ -107,6 +107,7 @@ func (s *Server) register() {
 	s.handle("PATCH", "/nutrition/entries/{id}", s.patchNutritionEntry)
 	s.handle("DELETE", "/nutrition/entries/{id}", s.deleteNutritionEntry)
 	s.handle("POST", "/nutrition/entries/{id}/copy", s.copyNutritionEntry)
+	s.handle("GET", "/nutrition/items", s.suggestNutritionItems)
 	s.handle("GET", "/nutrition/days", s.nutritionDays)
 	s.handle("GET", "/nutrition/days/{date}", s.nutritionDay)
 	s.handle("GET", "/nutrition/targets", s.getNutritionTargets)

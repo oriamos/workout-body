@@ -384,7 +384,7 @@ func registerAnalyticsTools(r *registry, service *training.Service) {
 	setDate(summarySchema, "from", "to")
 	addTool(r, &mcp.Tool{
 		Name:        "training_summary",
-		Description: "Overview of completed working sets over a local date range (default: the 28 days ending today in the configured timezone): workouts, working and warm-up sets, volume in kg, sets missing weight/reps, and breakdowns by exercise, muscle group and week (Monday start).",
+		Description: "Overview of completed working sets over a local date range (default: the 28 days ending today in the configured timezone): workouts, working and warm-up sets, volume in kg, sets missing weight/reps, and breakdowns by exercise, muscle group and week (the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START)).",
 		InputSchema: summarySchema,
 		Annotations: readOnly("Training summary"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in RangeInput) (*mcp.CallToolResult, SummaryOut, error) {
@@ -411,7 +411,7 @@ func registerAnalyticsTools(r *registry, service *training.Service) {
 	setDate(weeklySchema, "from", "to")
 	addTool(r, &mcp.Tool{
 		Name:        "weekly_volume",
-		Description: "Legacy SI and set count per muscle group per training week (Monday start), newest week first. SI is derived from RPE and is 0 for sets without RPE. Prefer training_summary for kg volume.",
+		Description: "Legacy SI and set count per muscle group per training week (Monday start, legacy), newest week first. SI is derived from RPE and is 0 for sets without RPE. Prefer training_summary for kg volume.",
 		InputSchema: weeklySchema,
 		Annotations: readOnly("Weekly volume"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in RangeInput) (*mcp.CallToolResult, WeeklyOut, error) {

@@ -28,7 +28,7 @@ var weekdayNames = map[string]string{
 //	{"type":"weekdays","days":["mon","thu"]}      fixed days of the week
 //	{"type":"times_per_week","times_per_week":3}  a weekly frequency, any days
 //
-// Days are in the configured timezone, and the week starts on Monday. A schedule
+// Days are in the configured timezone, and weeks follow the configured week start. A schedule
 // is information about the plan: it never creates or changes a workout.
 type Schedule struct {
 	Type         string   `json:"type"`
@@ -149,7 +149,7 @@ type ScheduleDay struct {
 	Workout   *WorkoutRef     `json:"workout"`
 }
 
-// WeeklyTarget tracks a times_per_week plan for one Monday-start week.
+// WeeklyTarget tracks a times_per_week plan for one week (configured week start).
 type WeeklyTarget struct {
 	WeekStart string   `json:"week_start"`
 	PlanID    int64    `json:"plan_id"`
@@ -191,13 +191,13 @@ func (s *Service) SetPlanSchedule(ctx context.Context, planID int64, sched *Sche
 }
 
 // GetSchedule lays plans' schedules over a date range (default: the current
-// Monday-to-Sunday week in the configured timezone). Fixed-day plans appear on
+// week (configured week start) in the configured timezone). Fixed-day plans appear on
 // their days with a status; weekly-frequency plans get a per-week tally.
 // It reads only: it never creates a workout.
 func (s *Service) GetSchedule(ctx context.Context, from, to string) (ScheduleView, error) {
 	today := s.Today()
 	if from == "" && to == "" {
-		from = weekStart(today)
+		from = s.weekStart(today)
 	}
 	if from == "" {
 		return ScheduleView{}, invalid("from", "is required when to is given")
@@ -224,8 +224,8 @@ func (s *Service) GetSchedule(ctx context.Context, from, to string) (ScheduleVie
 	}
 	// Weekly tallies need whole weeks, so read workouts for the full weeks
 	// that overlap the range.
-	wkFrom := weekStart(from)
-	wkTo := weekStart(to)
+	wkFrom := s.weekStart(from)
+	wkTo := s.weekStart(to)
 	wkEnd, _ := time.Parse("2006-01-02", wkTo)
 	days, err := s.store.WorkoutsInRange(ctx, wkFrom, wkEnd.AddDate(0, 0, 6).Format("2006-01-02"))
 	if err != nil {

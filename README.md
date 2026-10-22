@@ -37,7 +37,7 @@ completed sets, the second corrected to 7 reps, and squats **planned** as 3×4 a
 values; the engine validates and stores them. See
 [docs/mcp-examples.md](docs/mcp-examples.md).
 
-Also: keep a simple **nutrition log** (calories and macros per meal, daily targets that apply from a date forward, daily summaries — [docs/nutrition.md](docs/nutrition.md)), log a daily **body weight** and read weekly averages with the week-over-week change ([docs/weight.md](docs/weight.md)), give a plan a fixed schedule (fixed weekdays or N times a week) and see what is due this week, import/export plans as JSON, read planned-vs-completed progress, look at
+Also: keep a simple **nutrition log** (calories and macros per meal, optionally per ingredient, daily targets that apply from a date forward, daily summaries — [docs/nutrition.md](docs/nutrition.md)), log a daily **body weight** and read weekly averages with the week-over-week change ([docs/weight.md](docs/weight.md)), give a plan a fixed schedule (fixed weekdays or N times a week) and see what is due this week, import/export plans as JSON, read planned-vs-completed progress, look at
 exercise history and progression, attach a video to a set, and keep written
 instructions plus how-to videos per exercise.
 
@@ -115,6 +115,7 @@ Connect an assistant: [docs/plugin-setup.md](docs/plugin-setup.md). Docker:
 |---|---|---|
 | `MCP_BEARER_TOKEN` | required (not for `--stdio`) | Static bearer token for `/mcp` and `/api/v1` |
 | `WORKOUT_TIMEZONE` | `Asia/Jerusalem` | IANA zone that decides the workout date |
+| `WORKOUT_WEEK_START` | `sunday` | First day of the week for weekly views (`sunday` or `monday`) |
 | `TRAINING_DB_PATH` | `~/.local/share/training-mcp/training.db` | SQLite file |
 | `MEDIA_DIR` | `media/` beside the database | Uploaded videos |
 | `MAX_VIDEO_MB` | `200` | Upload size limit |

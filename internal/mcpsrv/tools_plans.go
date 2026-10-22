@@ -45,7 +45,7 @@ type CreatePlanInput struct {
 type ScheduleInput struct {
 	Type         string   `json:"type" jsonschema:"'weekdays' (fixed days of the week) or 'times_per_week' (a weekly frequency on any days)."`
 	Days         []string `json:"days,omitempty" jsonschema:"For type weekdays: days of the week, any of mon, tue, wed, thu, fri, sat, sun (full English names are accepted too), in the configured timezone."`
-	TimesPerWeek int      `json:"times_per_week,omitempty" jsonschema:"For type times_per_week: sessions per Monday-start week, 1-7."`
+	TimesPerWeek int      `json:"times_per_week,omitempty" jsonschema:"For type times_per_week: sessions per week (the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START)), 1-7."`
 }
 
 func (in *ScheduleInput) toSchedule() *training.Schedule {
@@ -55,7 +55,7 @@ func (in *ScheduleInput) toSchedule() *training.Schedule {
 	return &training.Schedule{Type: in.Type, Days: in.Days, TimesPerWeek: in.TimesPerWeek}
 }
 
-const scheduleRule = "A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency; the week starts on Monday. A schedule NEVER creates or changes a workout."
+const scheduleRule = "A schedule says when a plan is meant to be done: {type:'weekdays', days:[...]} for fixed days (mon..sun in the user's configured timezone) or {type:'times_per_week', times_per_week:N} for a frequency per week; weeks follow the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START). A schedule NEVER creates or changes a workout."
 
 type SetScheduleInput struct {
 	PlanID           int64          `json:"plan_id" jsonschema:"Id of the plan."`
@@ -63,7 +63,7 @@ type SetScheduleInput struct {
 	ExpectedRevision *int           `json:"expected_revision,omitempty" jsonschema:"The plan's revision from your last read; rejected with a conflict if it changed since."`
 }
 type ScheduleRangeInput struct {
-	From string `json:"from,omitempty" jsonschema:"Inclusive first local date YYYY-MM-DD. Omit both from and to for the current Monday-Sunday week; with only from, the 7 days starting there."`
+	From string `json:"from,omitempty" jsonschema:"Inclusive first local date YYYY-MM-DD. Omit both from and to for the current week (the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START)); with only from, the 7 days starting there."`
 	To   string `json:"to,omitempty" jsonschema:"Inclusive last local date YYYY-MM-DD; requires from. At most 62 days."`
 }
 type ScheduleOut struct {
@@ -347,9 +347,9 @@ func registerPlanTools(r *registry, service *training.Service) {
 	setDate(rangeSchema, "from", "to")
 	addTool(r, &mcp.Tool{
 		Name: "get_schedule",
-		Description: "What is planned for a range of local dates (default: the current Monday-Sunday week in the configured timezone). Read-only: never creates a workout. Returns today and timezone; " +
+		Description: "What is planned for a range of local dates (default: the current week in the configured timezone; the configured week (Sunday to Saturday by default; WORKOUT_WEEK_START)). Read-only: never creates a workout. Returns today and timezone; " +
 			"days[] with each date's weekday, the plans scheduled on it by fixed weekdays and their status, and the workout that exists on that date (id, plan, working sets, revision) if any; " +
-			"weekly_targets[] for times_per_week plans per Monday-start week (target, completed = workouts following the plan with completed working sets, remaining, dates); and unscheduled_plans[]. " +
+			"weekly_targets[] for times_per_week plans per week (target, completed = workouts following the plan with completed working sets, remaining, dates); and unscheduled_plans[]. " +
 			"Statuses: done = a workout following this plan has completed working sets on that date; started = a workout following this plan exists but has no completed working sets yet; " +
 			"missed = the date has passed without it; due = today and not done yet; upcoming = a future date. A missed day is information only. " +
 			"To follow a scheduled plan, pass its plan_id to log_sets. " + scheduleRule,

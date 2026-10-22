@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -21,6 +22,8 @@ const (
 	maxNutritionName  = 200
 	MaxNutritionList  = 500
 	maxNutritionRange = 366
+	MaxNutritionItems = 50
+	MaxItemAmountG    = 5000
 )
 
 // ErrNutritionDisabled means the store does not support nutrition.
@@ -35,12 +38,27 @@ type Nutrients struct {
 	FatG         *float64 `json:"fat_g"`
 }
 
-// NutritionEntry is one portion consumed on a local date.
+// NutritionItem is one ingredient of a meal: its own name, the optional
+// amount used in grams, and the values for that amount.
+type NutritionItem struct {
+	Name    string   `json:"name"`
+	AmountG *float64 `json:"amount_g"`
+	Nutrients
+}
+
+// NutritionEntry is one portion consumed on a local date. A meal can be made
+// of Items; its values are then the sums of the items' values.
 type NutritionEntry struct {
 	ID   int64  `json:"id"`
 	Date string `json:"date"`
 	Name string `json:"name"`
 	Nutrients
+	// Items are the ingredients, in order; empty for an entry logged as a
+	// single portion with its own values.
+	Items []NutritionItem `json:"items"`
+	// IncompleteValues names the values (calories_kcal, protein_g, carbs_g,
+	// fat_g) that only some items provide, so the entry's sum is partial.
+	IncompleteValues []string `json:"incomplete_values"`
 	// CopiedFrom is the entry this one was copied from, if any. The copy is
 	// independent: editing either never changes the other.
 	CopiedFrom *int64 `json:"copied_from"`
@@ -55,6 +73,9 @@ type NutritionInput struct {
 	Date string
 	Name string
 	Nutrients
+	// Items, when given, make up the meal; the entry's values are then their
+	// sums and must not also be given directly.
+	Items          []NutritionItem
 	IdempotencyKey string
 }
 
@@ -65,8 +86,20 @@ type NutritionPatch struct {
 	Date *string
 	Nutrients
 	ClearCalories, ClearProtein, ClearCarbs, ClearFat bool
+	// Items, when non-nil, replaces the whole ingredient list. A non-empty
+	// list recomputes the values from the items; an empty list removes the
+	// items and keeps the current sums as the entry's own values.
+	Items *[]NutritionItem
 	// ExpectedRevision, when non-nil, must match the entry's revision.
 	ExpectedRevision *int
+}
+
+// NutritionItemSuggestion is an ingredient used before, as last logged, so a
+// UI or assistant can reuse its values (scaling by amount when known).
+type NutritionItemSuggestion struct {
+	NutritionItem
+	LastUsed string `json:"last_used"`
+	Uses     int    `json:"uses"`
 }
 
 // NutritionFilter selects entries by inclusive local date range and an
@@ -141,6 +174,73 @@ type NutritionStore interface {
 	TargetHistory(ctx context.Context) ([]NutritionTargets, error)
 	SetTargets(ctx context.Context, from string, p TargetPatch, now string) (NutritionTargets, error)
 	DeleteTargetChange(ctx context.Context, from string, expectedRevision *int) error
+	// RecentNutritionItems returns the latest use of each distinct ingredient
+	// name (case-insensitive), most recent first, optionally filtered by name.
+	RecentNutritionItems(ctx context.Context, query string, limit int) ([]NutritionItemSuggestion, error)
+}
+
+// SumItems derives an entry's values from its items: each value is the sum of
+// the items that provide it, or nil when none does (a missing value is never
+// counted as 0). incomplete lists the values only some items provide.
+func SumItems(items []NutritionItem) (sum Nutrients, incomplete []string) {
+	incomplete = []string{}
+	for i, name := range nutrientNames {
+		total, have := 0.0, 0
+		for _, it := range items {
+			if v := it.Nutrients.at(i); v != nil {
+				total += *v
+				have++
+			}
+		}
+		if have > 0 {
+			t := round2n(total)
+			*sum.ptr(i) = &t
+			if have < len(items) {
+				incomplete = append(incomplete, name)
+			}
+		}
+	}
+	return sum, incomplete
+}
+
+func (n *Nutrients) ptr(i int) **float64 {
+	return [4]**float64{&n.CaloriesKcal, &n.ProteinG, &n.CarbsG, &n.FatG}[i]
+}
+
+func (n Nutrients) at(i int) *float64 { return *n.ptr(i) }
+
+// itemIssues validates and normalizes an ingredient list in place.
+func itemIssues(items []NutritionItem) []Issue {
+	var out []Issue
+	if len(items) > MaxNutritionItems {
+		out = append(out, Issue{Field: "items", Message: fmt.Sprintf("at most %d ingredients per meal", MaxNutritionItems)})
+	}
+	for i := range items {
+		path := fmt.Sprintf("items[%d]", i)
+		items[i].Name = normalizeNutritionName(items[i].Name)
+		switch {
+		case items[i].Name == "":
+			out = append(out, Issue{Field: path + ".name", Message: "is required"})
+		case tooLong(items[i].Name, maxNutritionName):
+			out = append(out, Issue{Field: path + ".name", Message: fmt.Sprintf("must be at most %d characters", maxNutritionName)})
+		}
+		if a := items[i].AmountG; a != nil {
+			if math.IsNaN(*a) || math.IsInf(*a, 0) || *a <= 0 || *a > MaxItemAmountG {
+				out = append(out, Issue{Field: path + ".amount_g", Message: fmt.Sprintf("must be more than 0 and at most %d g; omit it if unknown", MaxItemAmountG)})
+			}
+		}
+		out = append(out, nutrientIssues(items[i].Nutrients, path)...)
+	}
+	return out
+}
+
+func anyNutrient(n Nutrients) bool {
+	return n.CaloriesKcal != nil || n.ProteinG != nil || n.CarbsG != nil || n.FatG != nil
+}
+
+// fromItemsIssue rejects values given directly on a meal made of items.
+func fromItemsIssue() Issue {
+	return Issue{Field: "items", Message: "a meal made of ingredients takes its values from them; give calories_kcal, protein_g, carbs_g and fat_g per item, not on the meal"}
 }
 
 func (s *Service) nutrition() (NutritionStore, error) {
@@ -215,6 +315,10 @@ func (s *Service) AddNutritionEntry(ctx context.Context, in NutritionInput) (Nut
 	}
 	in.Name = normalizeNutritionName(in.Name)
 	iss := append(nameIssue(in.Name), nutrientIssues(in.Nutrients, "")...)
+	iss = append(iss, itemIssues(in.Items)...)
+	if len(in.Items) > 0 && anyNutrient(in.Nutrients) {
+		iss = append(iss, fromItemsIssue())
+	}
 	date, dErr := s.consumptionDate(in.Date, "date")
 	if dErr != nil {
 		iss = append(iss, IssuesOf(dErr)...)
@@ -226,7 +330,11 @@ func (s *Service) AddNutritionEntry(ctx context.Context, in NutritionInput) (Nut
 		return NutritionEntry{}, false, err
 	}
 	now := s.nowStamp()
-	return ns.AddNutrition(ctx, NutritionEntry{Date: date, Name: in.Name, Nutrients: in.Nutrients, CreatedAt: now, UpdatedAt: now}, in.IdempotencyKey)
+	e := NutritionEntry{Date: date, Name: in.Name, Nutrients: in.Nutrients, Items: in.Items, CreatedAt: now, UpdatedAt: now}
+	if len(in.Items) > 0 {
+		e.Nutrients, e.IncompleteValues = SumItems(in.Items)
+	}
+	return ns.AddNutrition(ctx, e, in.IdempotencyKey)
 }
 
 // GetNutritionEntry returns one entry by id.
@@ -279,9 +387,15 @@ func (s *Service) UpdateNutritionEntry(ctx context.Context, id int64, p Nutritio
 		iss = append(iss, Issue{Field: "entry_id", Message: "must be a positive id"})
 	}
 	empty := p.Name == nil && p.Date == nil && p.CaloriesKcal == nil && p.ProteinG == nil && p.CarbsG == nil && p.FatG == nil &&
-		!p.ClearCalories && !p.ClearProtein && !p.ClearCarbs && !p.ClearFat
+		!p.ClearCalories && !p.ClearProtein && !p.ClearCarbs && !p.ClearFat && p.Items == nil
 	if empty {
 		iss = append(iss, Issue{Message: "provide at least one field to change"})
+	}
+	if p.Items != nil {
+		iss = append(iss, itemIssues(*p.Items)...)
+		if len(*p.Items) > 0 && (anyNutrient(p.Nutrients) || p.ClearCalories || p.ClearProtein || p.ClearCarbs || p.ClearFat) {
+			iss = append(iss, fromItemsIssue())
+		}
 	}
 	if p.Name != nil {
 		v := normalizeNutritionName(*p.Name)
@@ -415,7 +529,33 @@ func (s *Service) DeleteNutritionTargetChange(ctx context.Context, from string, 
 	return ns.DeleteTargetChange(ctx, from, expectedRevision)
 }
 
+// SuggestNutritionItems lists ingredients used before (latest use of each
+// name, most recent first), optionally matching query, for reuse.
+func (s *Service) SuggestNutritionItems(ctx context.Context, query string, limit int) ([]NutritionItemSuggestion, error) {
+	ns, err := s.nutrition()
+	if err != nil {
+		return nil, err
+	}
+	query = strings.TrimSpace(query)
+	if tooLong(query, maxNutritionName) {
+		return nil, invalid("q", "must be at most %d characters", maxNutritionName)
+	}
+	if limit < 0 || limit > 100 {
+		return nil, invalid("limit", "must be between 0 and 100 (0 uses the default of 20)")
+	}
+	if limit == 0 {
+		limit = 20
+	}
+	out, err := ns.RecentNutritionItems(ctx, query, limit)
+	if err == nil && out == nil {
+		out = []NutritionItemSuggestion{}
+	}
+	return out, err
+}
+
 func round2n(v float64) float64 { return math.Round(v*100) / 100 }
+
+var nutrientNames = [4]string{"calories_kcal", "protein_g", "carbs_g", "fat_g"}
 
 func summarize(consumed float64, missing int, target *float64) NutrientSummary {
 	out := NutrientSummary{Consumed: round2n(consumed), MissingEntries: missing, Target: target}
@@ -493,10 +633,13 @@ func (s *Service) NutritionDays(ctx context.Context, from, to string) ([]Nutriti
 		var miss [4]int
 		for _, e := range day.Entries {
 			for i, v := range []*float64{e.CaloriesKcal, e.ProteinG, e.CarbsG, e.FatG} {
-				if v == nil {
-					miss[i]++
-				} else {
+				if v != nil {
 					sum[i] += *v
+				}
+				// A meal whose value only some ingredients provide is counted
+				// (its known part) and flagged as missing too.
+				if v == nil || slices.Contains(e.IncompleteValues, nutrientNames[i]) {
+					miss[i]++
 				}
 			}
 		}

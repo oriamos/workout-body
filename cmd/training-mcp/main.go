@@ -102,7 +102,7 @@ func runWithContext(ctx context.Context, args []string) error {
 		return err
 	}
 	defer store.Close()
-	service := training.NewService(store, time.Now).WithLocation(cfg.Location)
+	service := training.NewService(store, time.Now).WithLocation(cfg.Location).WithWeekStart(cfg.WeekStart)
 	// Video storage is optional: if its directory cannot be created, workout
 	// logging must still work, so degrade to "media disabled" instead of failing.
 	if blobs, err := mediastore.New(cfg.MediaDir); err != nil {

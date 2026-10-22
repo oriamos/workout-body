@@ -30,6 +30,9 @@ type Config struct {
 	MediaDir string
 	// MaxVideoBytes is the upload size limit.
 	MaxVideoBytes int64
+	// WeekStart is the first day of the week for weekly views
+	// (WORKOUT_WEEK_START: sunday or monday; default sunday).
+	WeekStart time.Weekday
 }
 
 const defaultMaxVideoMB = 200
@@ -80,8 +83,16 @@ func LoadFor(addr string, stdio bool) (Config, error) {
 		}
 		maxMB = n
 	}
+	weekStart := time.Sunday
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("WORKOUT_WEEK_START"))); v {
+	case "", "sunday", "sun":
+	case "monday", "mon":
+		weekStart = time.Monday
+	default:
+		return Config{}, fmt.Errorf("WORKOUT_WEEK_START %q must be sunday or monday", v)
+	}
 	return Config{Addr: addr, DBPath: db, Token: token, AuthDisabled: disabled, WebBasePath: webBase, Timezone: tz, Location: loc,
-		MediaDir: mediaDir, MaxVideoBytes: maxMB << 20}, nil
+		MediaDir: mediaDir, MaxVideoBytes: maxMB << 20, WeekStart: weekStart}, nil
 }
 
 // normalizeBasePath accepts "", "app", "/app" or "/app/" and returns "" or

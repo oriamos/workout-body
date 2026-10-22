@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	nutritionUnits   = "Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g."
-	nutritionMissing = "Omit a value that is unknown: omitted means 'not recorded' and is never treated as 0; send 0 only for an explicit zero. Calories are stored exactly as given and never recomputed from macros."
-	nutritionDates   = "Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today. Food cannot be logged for a future date. Nutrition never creates or changes a workout."
-	nutritionIdem    = "idempotency_key (optional, at most 128 characters, global to this single user): retrying with the same key and the same payload replays the stored entry (replayed=true) without writing again; the same key with a different payload is a conflict. A meal eaten twice on purpose needs no key or a new key."
-	targetsRule      = "Targets are only ever what the user explicitly asks for: never invent, suggest-and-save or recommend targets."
+	nutritionUnits     = "Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g."
+	nutritionMissing   = "Omit a value that is unknown: omitted means 'not recorded' and is never treated as 0; send 0 only for an explicit zero. Calories are stored exactly as given and never recomputed from macros."
+	nutritionDates     = "Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today. Food cannot be logged for a future date. Nutrition never creates or changes a workout."
+	nutritionIdem      = "idempotency_key (optional, at most 128 characters, global to this single user): retrying with the same key and the same payload replays the stored entry (replayed=true) without writing again; the same key with a different payload is a conflict. A meal eaten twice on purpose needs no key or a new key."
+	nutritionItemsRule = "items (optional): when the user describes a meal with several components (e.g. 'yogurt with granola and blueberries'), prefer logging it as items - one per ingredient, each with its own name, amount_g (grams used, if known) and values for THAT amount (not per 100 g). Omit an unknown item value, never send 0 for unknown. The meal's calories_kcal/protein_g/carbs_g/fat_g are then computed as the sums of the items, so do not also give them on the meal; incomplete_values in the result names any value only some items provide (that sum is partial). Check suggest_nutrition_items first for ingredients the user logged before and reuse their values."
+	targetsRule        = "Targets are only ever what the user explicitly asks for: never invent, suggest-and-save or recommend targets."
 )
 
 var nutrientClearEnum = []any{"calories_kcal", "protein_g", "carbs_g", "fat_g"}
@@ -49,11 +50,34 @@ func applyClear(names []string, cal, pro, carb, fat *bool) error {
 	return nil
 }
 
+// NutritionItemInput is one ingredient of a meal.
+type NutritionItemInput struct {
+	Name         string   `json:"name" jsonschema:"The ingredient, e.g. 'Greek yogurt 2%'. 1-200 characters."`
+	AmountG      *float64 `json:"amount_g,omitempty" jsonschema:"Grams of this ingredient used, more than 0 and at most 5000. Omit if unknown."`
+	CaloriesKcal *float64 `json:"calories_kcal,omitempty" jsonschema:"Energy of the amount used in kcal, 0-20000. Omit if unknown (never 0 for unknown)."`
+	ProteinG     *float64 `json:"protein_g,omitempty" jsonschema:"Protein of the amount used in grams, 0-2000. Omit if unknown."`
+	CarbsG       *float64 `json:"carbs_g,omitempty" jsonschema:"Carbohydrate of the amount used in grams, 0-2000. Omit if unknown."`
+	FatG         *float64 `json:"fat_g,omitempty" jsonschema:"Fat of the amount used in grams, 0-2000. Omit if unknown."`
+}
+
+func nutritionItems(in []NutritionItemInput) []training.NutritionItem {
+	if in == nil {
+		return nil
+	}
+	out := make([]training.NutritionItem, 0, len(in))
+	for _, it := range in {
+		out = append(out, training.NutritionItem{Name: it.Name, AmountG: it.AmountG,
+			Nutrients: training.Nutrients{CaloriesKcal: it.CaloriesKcal, ProteinG: it.ProteinG, CarbsG: it.CarbsG, FatG: it.FatG}})
+	}
+	return out
+}
+
 type AddNutritionInput struct {
 	Name string `json:"name" jsonschema:"What was eaten, e.g. 'chicken and rice, large plate'. 1-200 characters."`
 	NutrientInput
-	Date           string `json:"date,omitempty" jsonschema:"Local date YYYY-MM-DD it was eaten. Omit for today."`
-	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"Optional retry key. Same key + same payload replays; different payload is a conflict."`
+	Items          []NutritionItemInput `json:"items,omitempty" jsonschema:"Ingredients of the meal (at most 50), each with values for the amount used. When given, do not give calories_kcal/protein_g/carbs_g/fat_g on the meal: they are computed as the items' sums."`
+	Date           string               `json:"date,omitempty" jsonschema:"Local date YYYY-MM-DD it was eaten. Omit for today."`
+	IdempotencyKey string               `json:"idempotency_key,omitempty" jsonschema:"Optional retry key. Same key + same payload replays; different payload is a conflict."`
 }
 type NutritionEntryOut struct {
 	Entry    training.NutritionEntry `json:"entry"`
@@ -77,8 +101,17 @@ type UpdateNutritionInput struct {
 	Name    *string `json:"name,omitempty" jsonschema:"New name."`
 	Date    *string `json:"date,omitempty" jsonschema:"Move the entry to this local date YYYY-MM-DD (not in the future)."`
 	NutrientInput
-	Clear            []string `json:"clear,omitempty" jsonschema:"Values to reset to 'not recorded': any of calories_kcal, protein_g, carbs_g, fat_g."`
-	ExpectedRevision *int     `json:"expected_revision,omitempty" jsonschema:"The entry's revision from your last read; rejected with a conflict if it changed since."`
+	Clear            []string              `json:"clear,omitempty" jsonschema:"Values to reset to 'not recorded': any of calories_kcal, protein_g, carbs_g, fat_g."`
+	Items            *[]NutritionItemInput `json:"items,omitempty" jsonschema:"Replaces the WHOLE ingredient list (send every item to keep, not only the changed one). A non-empty list recomputes the meal's values from the items (do not also send values or clear). An empty list [] removes the items and keeps the current sums as the entry's own values, which can then be edited directly."`
+	ExpectedRevision *int                  `json:"expected_revision,omitempty" jsonschema:"The entry's revision from your last read; rejected with a conflict if it changed since."`
+}
+
+type SuggestItemsInput struct {
+	Query string `json:"query,omitempty" jsonschema:"Case-insensitive text to match in the ingredient name, e.g. 'yogurt'. Omit for the most recent ingredients."`
+	Limit int    `json:"limit,omitempty" jsonschema:"Maximum ingredients; defaults to 20, at most 100."`
+}
+type SuggestItemsOut struct {
+	Items []training.NutritionItemSuggestion `json:"items"`
 }
 type DeleteNutritionInput struct {
 	EntryID          int64 `json:"entry_id" jsonschema:"Id of the entry to delete."`
@@ -125,15 +158,16 @@ type SetTargetsInput struct {
 func registerNutritionTools(r *registry, service *training.Service) {
 	addSchema := inputSchema[AddNutritionInput]()
 	setNonEmpty(addSchema, "name")
+	setItemsSchema(prop(addSchema, "items"))
 	setDate(addSchema, "date")
 	addTool(r, &mcp.Tool{
 		Name: "add_nutrition_entry",
-		Description: "Log one food or meal eaten. Returns the persisted entry (id, date, name, values, revision, created_at, updated_at) and replayed. " +
-			nutritionUnits + " " + nutritionMissing + " " + nutritionDates + " " + nutritionIdem,
+		Description: "Log one food or meal eaten. Returns the persisted entry (id, date, name, values, items, incomplete_values, revision, created_at, updated_at) and replayed. " +
+			nutritionUnits + " " + nutritionMissing + " " + nutritionItemsRule + " " + nutritionDates + " " + nutritionIdem,
 		InputSchema: addSchema,
 		Annotations: additive("Add nutrition entry", false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in AddNutritionInput) (*mcp.CallToolResult, NutritionEntryOut, error) {
-		e, replayed, err := service.AddNutritionEntry(ctx, training.NutritionInput{Date: in.Date, Name: in.Name, Nutrients: in.nutrients(), IdempotencyKey: in.IdempotencyKey})
+		e, replayed, err := service.AddNutritionEntry(ctx, training.NutritionInput{Date: in.Date, Name: in.Name, Nutrients: in.nutrients(), Items: nutritionItems(in.Items), IdempotencyKey: in.IdempotencyKey})
 		return nil, NutritionEntryOut{Entry: e, Replayed: replayed}, toolError(err)
 	})
 
@@ -174,19 +208,41 @@ func registerNutritionTools(r *registry, service *training.Service) {
 	setDate(updSchema, "date")
 	prop(updSchema, "clear").Items.Enum = nutrientClearEnum
 	updSchema.MinProperties = jsonschema.Ptr(2)
+	setItemsSchema(prop(updSchema, "items"))
 	addTool(r, &mcp.Tool{
 		Name: "update_nutrition_entry",
 		Description: "Correct one nutrition entry by id (read it first). Only the fields given change; omitted fields stay as stored. Use clear to turn a value back into 'not recorded'. Returns the persisted entry with its new revision. " +
+			"For a meal made of items, change the ingredients by sending items with the WHOLE new list (values are recomputed from it); its values cannot be set directly unless items is replaced in the same call ([] removes the items and keeps the sums as directly editable values). " +
 			nutritionUnits + " " + nutritionMissing + " " + revisionRule,
 		InputSchema: updSchema,
 		Annotations: destructive("Update nutrition entry", true),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in UpdateNutritionInput) (*mcp.CallToolResult, NutritionEntryOut, error) {
 		p := training.NutritionPatch{Name: in.Name, Date: in.Date, Nutrients: in.nutrients(), ExpectedRevision: in.ExpectedRevision}
+		if in.Items != nil {
+			items := nutritionItems(*in.Items)
+			if items == nil {
+				items = []training.NutritionItem{}
+			}
+			p.Items = &items
+		}
 		if err := applyClear(in.Clear, &p.ClearCalories, &p.ClearProtein, &p.ClearCarbs, &p.ClearFat); err != nil {
 			return nil, NutritionEntryOut{}, toolError(err)
 		}
 		e, err := service.UpdateNutritionEntry(ctx, in.EntryID, p)
 		return nil, NutritionEntryOut{Entry: e}, toolError(err)
+	})
+
+	sugSchema := inputSchema[SuggestItemsInput]()
+	addTool(r, &mcp.Tool{
+		Name: "suggest_nutrition_items",
+		Description: "Ingredients the user logged before (as items of earlier meals), with their latest values: name, amount_g and the values for that amount, last_used date and uses count, most recently used first. " +
+			"Check it before logging a meal as items and reuse these values, scaling them by amount_g when the portion differs (e.g. 150 g when 200 g was logged: multiply by 0.75) - and tell the user you scaled. " +
+			"A value that is null was not recorded; keep it omitted rather than guessing 0. " + nutritionUnits,
+		InputSchema: sugSchema,
+		Annotations: readOnly("Suggest nutrition items"),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SuggestItemsInput) (*mcp.CallToolResult, SuggestItemsOut, error) {
+		v, err := service.SuggestNutritionItems(ctx, in.Query, in.Limit)
+		return nil, SuggestItemsOut{Items: v}, toolError(err)
 	})
 
 	delSchema := inputSchema[DeleteNutritionInput]()
@@ -286,4 +342,12 @@ func registerNutritionTools(r *registry, service *training.Service) {
 		h, err := service.NutritionTargetHistory(ctx)
 		return nil, TargetsOut{Date: t.EffectiveFrom, Targets: t, History: h}, toolError(err)
 	})
+}
+
+// setItemsSchema bounds an ingredient list and its members.
+func setItemsSchema(s *jsonschema.Schema) {
+	s.MaxItems = jsonschema.Ptr(training.MaxNutritionItems)
+	setNonEmpty(s.Items, "name")
+	prop(s.Items, "amount_g").ExclusiveMinimum = jsonschema.Ptr(0.0)
+	prop(s.Items, "amount_g").Maximum = jsonschema.Ptr(float64(training.MaxItemAmountG))
 }

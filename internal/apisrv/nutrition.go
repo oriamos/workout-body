@@ -3,6 +3,8 @@ package apisrv
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -14,10 +16,65 @@ import (
 // ---- nutrition entries --------------------------------------------------------
 
 // nutritionEntryInput is POST /nutrition/entries. A nutrient that is absent or
-// null is "not provided" and is stored as such, never as 0.
+// null is "not provided" and is stored as such, never as 0. Items, when given,
+// make up the meal (decoded by decodeItems for precise issue paths).
 type nutritionEntryInput struct {
-	Date         string   `json:"date"`
+	Date         string          `json:"date"`
+	Name         string          `json:"name"`
+	CaloriesKcal *float64        `json:"calories_kcal"`
+	ProteinG     *float64        `json:"protein_g"`
+	CarbsG       *float64        `json:"carbs_g"`
+	FatG         *float64        `json:"fat_g"`
+	Items        json.RawMessage `json:"items"`
+}
+
+// decodeItems strictly decodes an ingredient list. Each item takes name,
+// amount_g and the four nutrients; like the entry's own nutrients, an absent
+// or null item value is "not provided". Issues name the item, e.g.
+// items[1].amount_g. null for the whole list is reported by the caller.
+func decodeItems(raw json.RawMessage) ([]training.NutritionItem, []training.Issue) {
+	var elems []json.RawMessage
+	if err := json.Unmarshal(raw, &elems); err != nil {
+		return nil, []training.Issue{{Field: "items", Message: "expected an array of ingredients"}}
+	}
+	items := make([]training.NutritionItem, 0, len(elems))
+	var iss []training.Issue
+	for i, el := range elems {
+		path := fmt.Sprintf("items[%d]", i)
+		var it nutritionItemInput
+		if isNull(el) || len(bytes.TrimSpace(el)) == 0 || bytes.TrimSpace(el)[0] != '{' {
+			iss = append(iss, training.Issue{Field: path, Message: "expected an object with name, amount_g, calories_kcal, protein_g, carbs_g and fat_g"})
+			continue
+		}
+		dec := json.NewDecoder(bytes.NewReader(el))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&it); err != nil {
+			var ute *json.UnmarshalTypeError
+			switch {
+			case errors.As(err, &ute) && ute.Field != "":
+				iss = append(iss, training.Issue{Field: path + "." + ute.Field, Message: fmt.Sprintf("expected %s, got %s", jsonType(ute.Type.Kind().String()), ute.Value)})
+			case strings.HasPrefix(err.Error(), "json: unknown field "):
+				name, uerr := strconv.Unquote(strings.TrimPrefix(err.Error(), "json: unknown field "))
+				if uerr != nil {
+					name = strings.TrimPrefix(err.Error(), "json: unknown field ")
+				}
+				iss = append(iss, training.Issue{Field: path + "." + name, Message: "unknown field"})
+			default:
+				iss = append(iss, training.Issue{Field: path, Message: "is not a valid ingredient: " + err.Error()})
+			}
+			continue
+		}
+		items = append(items, training.NutritionItem{Name: it.Name, AmountG: it.AmountG,
+			Nutrients: training.Nutrients{CaloriesKcal: it.CaloriesKcal, ProteinG: it.ProteinG, CarbsG: it.CarbsG, FatG: it.FatG}})
+	}
+	return items, iss
+}
+
+// nutritionItemInput is one ingredient on the wire, flat so decode errors
+// name the member directly.
+type nutritionItemInput struct {
 	Name         string   `json:"name"`
+	AmountG      *float64 `json:"amount_g"`
 	CaloriesKcal *float64 `json:"calories_kcal"`
 	ProteinG     *float64 `json:"protein_g"`
 	CarbsG       *float64 `json:"carbs_g"`
@@ -74,6 +131,13 @@ func (s *Server) addNutritionEntry(w http.ResponseWriter, r *http.Request) error
 	if err := decodeBody(w, r, &in); err != nil {
 		return err
 	}
+	var items []training.NutritionItem
+	if len(in.Items) > 0 && !isNull(in.Items) {
+		var iss []training.Issue
+		if items, iss = decodeItems(in.Items); len(iss) > 0 {
+			return invalidIssues(iss)
+		}
+	}
 	date := strings.TrimSpace(in.Date)
 	if date == "today" {
 		date = s.svc.Today()
@@ -81,6 +145,7 @@ func (s *Server) addNutritionEntry(w http.ResponseWriter, r *http.Request) error
 	e, replayed, err := s.svc.AddNutritionEntry(r.Context(), training.NutritionInput{
 		Date: date, Name: in.Name,
 		Nutrients:      training.Nutrients{CaloriesKcal: in.CaloriesKcal, ProteinG: in.ProteinG, CarbsG: in.CarbsG, FatG: in.FatG},
+		Items:          items,
 		IdempotencyKey: strings.TrimSpace(r.Header.Get("Idempotency-Key")),
 	})
 	if err != nil {
@@ -127,7 +192,7 @@ func nutrientPatch(raw map[string]json.RawMessage, iss *[]training.Issue) (n tra
 	return n, clear
 }
 
-var nutritionPatchKeys = map[string]bool{"name": true, "date": true, "calories_kcal": true, "protein_g": true, "carbs_g": true, "fat_g": true}
+var nutritionPatchKeys = map[string]bool{"name": true, "date": true, "calories_kcal": true, "protein_g": true, "carbs_g": true, "fat_g": true, "items": true}
 
 func (s *Server) patchNutritionEntry(w http.ResponseWriter, r *http.Request) error {
 	id, err := pathID(r, "id")
@@ -172,6 +237,17 @@ func (s *Server) patchNutritionEntry(w http.ResponseWriter, r *http.Request) err
 	var clear [4]bool
 	p.Nutrients, clear = nutrientPatch(raw, &iss)
 	p.ClearCalories, p.ClearProtein, p.ClearCarbs, p.ClearFat = clear[0], clear[1], clear[2], clear[3]
+	// items replaces the whole list ([] removes it); null is rejected because
+	// merge-patch null would mean "remove" and [] already says that.
+	if v, ok := raw["items"]; ok {
+		if isNull(v) {
+			iss = append(iss, training.Issue{Field: "items", Message: "cannot be null; send [] to remove the ingredients"})
+		} else if items, itemIss := decodeItems(v); len(itemIss) > 0 {
+			iss = append(iss, itemIss...)
+		} else {
+			p.Items = &items
+		}
+	}
 	if len(iss) > 0 {
 		sortIssues(iss)
 		return invalidIssues(iss)
@@ -238,6 +314,21 @@ func decodeOptionalBody(w http.ResponseWriter, r *http.Request, dst any) error {
 		return err
 	}
 	return decodeStrict(data, dst)
+}
+
+// suggestNutritionItems is GET /nutrition/items: ingredients logged before,
+// the latest use of each name, for reuse.
+func (s *Server) suggestNutritionItems(w http.ResponseWriter, r *http.Request) error {
+	limit, err := queryInt(r, "limit")
+	if err != nil {
+		return err
+	}
+	out, err := s.svc.SuggestNutritionItems(r.Context(), r.URL.Query().Get("q"), limit)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+	return nil
 }
 
 // ---- nutrition days -------------------------------------------------------------

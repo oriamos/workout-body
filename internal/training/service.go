@@ -35,6 +35,9 @@ type Service struct {
 	media    MediaStore
 	blobs    BlobStore
 	maxVideo int64
+
+	// First day of the training week; nil means Monday.
+	weekFirst *time.Weekday
 }
 
 func NewService(store Store, clock Clock) *Service {
@@ -46,6 +49,21 @@ func NewService(store Store, clock Clock) *Service {
 		s.wt = ws
 	}
 	return s
+}
+
+// WithWeekStart sets the first day of the week used for weekly views
+// (schedules and frequency targets, training summaries, weight trends).
+func (s *Service) WithWeekStart(d time.Weekday) *Service {
+	s.weekFirst = &d
+	return s
+}
+
+// WeekStartDay is the first day of the week (Monday unless configured).
+func (s *Service) WeekStartDay() time.Weekday {
+	if s.weekFirst == nil {
+		return time.Monday
+	}
+	return *s.weekFirst
 }
 
 // WithLocation sets the timezone that decides which calendar date "today" is.

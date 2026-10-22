@@ -45,7 +45,7 @@ weights, projections, BMI, calorie or medical advice.
 returns the last `weeks` weeks (default 8, at most 104) ending with the week that
 contains `to` (default today), oldest first.
 
-* Weeks run **Monday to Sunday**, like the rest of the engine.
+* Weeks run **Sunday to Saturday** by default (or Monday to Sunday with `WORKOUT_WEEK_START=monday`), like the rest of the engine.
 * For each week: `days_logged`, and over **only the days that have a weigh-in**
   `average_kg` (rounded to 0.01), `min_kg`, `max_kg`. A week without any
   weigh-in has `days_logged: 0` and `null` statistics. Missing days are never

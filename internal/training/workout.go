@@ -334,7 +334,7 @@ type ExerciseSummary struct {
 	VolumeKG    float64 `json:"volume_kg"`
 }
 
-// WeekSummary aggregates one training week (Monday start).
+// WeekSummary aggregates one training week (configured week start).
 type WeekSummary struct {
 	WeekStart   string  `json:"week_start"`
 	Workouts    int     `json:"workouts"`

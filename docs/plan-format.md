@@ -58,7 +58,7 @@ mutually exclusive:
 | `times_per_week` | A weekly frequency, 1–7, on whichever days you choose. |
 
 Days are the **local** weekday in the configured timezone; the week runs
-Monday–Sunday. A rotation such as A/B/C is expressed by giving each plan its own
+Sunday–Saturday by default (`WORKOUT_WEEK_START=monday` for Monday–Sunday). A rotation such as A/B/C is expressed by giving each plan its own
 days (A: mon, B: wed, C: fri) or its own frequency. Several plans may share a
 day.
 

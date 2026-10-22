@@ -153,9 +153,9 @@ A plan may carry one optional schedule: fixed `weekdays` (`mon`…`sun`) or a
 It is stored on the plan (three columns), included in plan export/import, and
 changed with a revision-guarded setter (`SetPlanSchedule`) that bumps the plan's
 revision. The weekday of a date is computed in the configured timezone, never in
-UTC, and weeks start on Monday.
+UTC, and weeks start on the configured day (`WORKOUT_WEEK_START`: `sunday`, the default, or `monday`).
 
-`GetSchedule(from, to)` is a read-only view (default: the current Monday–Sunday
+`GetSchedule(from, to)` is a read-only view (default: the current
 week; at most 62 days). For each date it lists the weekday-scheduled plans with
 a status:
 

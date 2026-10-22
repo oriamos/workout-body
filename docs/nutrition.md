@@ -21,6 +21,8 @@ barcode scanning, an external food database, recipes or meal templates.
 | `name` | string | 1–200 characters, whitespace collapsed. |
 | `calories_kcal` | number or null | kcal for the **whole portion** (not per 100 g). 0–20000. |
 | `protein_g`, `carbs_g`, `fat_g` | number or null | grams for the whole portion. 0–2000 each. |
+| `items` | array (always present) | The meal's ingredients in order (see below); `[]` for a portion logged with its own values. |
+| `incomplete_values` | array of nutrient names | The values (`calories_kcal`, `protein_g`, `carbs_g`, `fat_g`) that only some items provide, so that sum is partial; `[]` otherwise. |
 | `copied_from` | integer or null | Set when the entry was created by copying another one (informational). |
 | `revision` | integer | Increments on every change; used for `If-Match` / `expected_revision`. |
 | `created_at`, `updated_at` | RFC 3339 UTC | Audit timestamps only — summaries use `date`. |
@@ -35,6 +37,35 @@ barcode scanning, an external food database, recipes or meal templates.
 * Nutrition is stored in its own tables. Logging food never creates or touches a
   workout, so it works on rest days.
 
+### Meals made of ingredients
+
+A meal can be logged as a list of **items** (at most 50), each an ingredient
+with its own values:
+
+| Item field | Type | Rules |
+|---|---|---|
+| `name` | string | 1–200 characters, whitespace collapsed. |
+| `amount_g` | number or null | Grams of the ingredient used; more than 0, at most 5000. Optional. |
+| `calories_kcal`, `protein_g`, `carbs_g`, `fat_g` | number or null | Values **for the amount used** (not per 100 g), same limits as an entry's. |
+
+* The entry's four values are then **computed**: each is the sum of the items
+  that provide it (rounded to 0.01), or `null` when no item does — a missing
+  item value is never counted as 0. When only some items provide a value, it is
+  listed in `incomplete_values`.
+* Values given directly on the meal together with `items` are rejected (issue
+  on `items`). Issues inside an item name it, e.g. `items[1].amount_g`.
+* Updating `items` **replaces the whole list**. A non-empty list recomputes the
+  values; values must not be sent alongside it. An empty list removes the items
+  and keeps the current sums as the entry's own values, which can then be edited
+  directly. Setting a value directly on an entry that has items is rejected
+  unless the items are replaced in the same update.
+* Copying an entry copies its items.
+* **Suggestions:** ingredients used before can be reused. For each ingredient
+  name (case-insensitive) the latest use is returned — name, `amount_g`, values,
+  `last_used` date and `uses` count — most recently used first, optionally
+  filtered by a name substring. An assistant scales those values by `amount_g`
+  when the portion differs, and says so.
+
 ## Daily summary
 
 For any date (today by default) the engine returns, computed from the stored
@@ -43,7 +74,7 @@ entries on every read (no counters that could drift after edits or deletes):
 | Per nutrient | Meaning |
 |---|---|
 | `consumed` | Sum of the entries that provided this value. |
-| `entries_missing_value` | Entries without this value — so a total that may be incomplete says so. |
+| `entries_missing_value` | Entries without this value — so a total that may be incomplete says so. A meal whose `incomplete_values` lists the nutrient is counted here too, while its known part is included in `consumed`. |
 | `target` | The target in effect on that date, or `null` when unset. |
 | `remaining` | `max(0, target − consumed)`; `null` without a target. |
 | `over` | `max(0, consumed − target)`; `null` without a target. |
@@ -94,9 +125,10 @@ All under `/api/v1`, bearer-authenticated like the rest. Full schemas in
 | Method and path | Purpose |
 |---|---|
 | `GET /nutrition/entries?date` or `?from&to`, `q`, `limit` | List entries (newest date first, chronological within a day); no date filter = latest entries across dates; `q` searches names case-insensitively |
-| `POST /nutrition/entries` | Add an entry (`Idempotency-Key` optional) → `{entry, replayed}` |
-| `GET` / `PATCH` / `DELETE /nutrition/entries/{id}` | Read; partial update (merge-patch, `null` clears a value, `If-Match` required); delete (`If-Match` required) |
-| `POST /nutrition/entries/{id}/copy` | Copy to `{date}` (default today) → new entry |
+| `POST /nutrition/entries` | Add an entry, optionally with `items` (`Idempotency-Key` optional) → `{entry, replayed}` |
+| `GET` / `PATCH` / `DELETE /nutrition/entries/{id}` | Read; partial update (merge-patch, `null` clears a value, `items` replaces the ingredient list and `items: []` removes it, `If-Match` required); delete (`If-Match` required) |
+| `POST /nutrition/entries/{id}/copy` | Copy to `{date}` (default today) → new entry (items included) |
+| `GET /nutrition/items?q&limit` | Ingredients used before (latest use of each name; `limit` 1–100, default 20) → `{items: [{name, amount_g, calories_kcal, protein_g, carbs_g, fat_g, last_used, uses}]}` |
 | `GET /nutrition/days/{date}` | Daily summary (`today` accepted) |
 | `GET /nutrition/days?from&to` | One summary per date, empty days included (≤ 366 days) |
 | `GET /nutrition/targets?date` | Targets in effect on a date, plus the history of changes |
@@ -109,6 +141,15 @@ curl -X POST "$URL/api/v1/nutrition/entries" \
   -H "Idempotency-Key: 2026-03-10-breakfast" \
   -d '{"name":"Oatmeal with berries","calories_kcal":350,"protein_g":12.5,"carbs_g":58,"fat_g":7}'
 
+curl -X POST "$URL/api/v1/nutrition/entries" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"Yogurt bowl","items":[
+        {"name":"Greek yogurt","amount_g":200,"calories_kcal":194,"protein_g":20,"carbs_g":7.6,"fat_g":10},
+        {"name":"Granola","amount_g":40,"calories_kcal":180,"protein_g":4,"carbs_g":26,"fat_g":6.5},
+        {"name":"Blueberries","amount_g":80,"calories_kcal":46,"protein_g":0.6,"carbs_g":11.6}]}'
+# → entry with calories_kcal 420, protein_g 24.6, carbs_g 45.2, fat_g 16.5,
+#   incomplete_values ["fat_g"]
+
 curl -X PUT "$URL/api/v1/nutrition/targets/today" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/merge-patch+json" \
   -H 'If-Match: "0"' -d '{"calories_kcal":2400,"protein_g":150}'
@@ -118,14 +159,23 @@ curl -X PUT "$URL/api/v1/nutrition/targets/today" \
 
 `add_nutrition_entry`, `get_nutrition_entry`, `list_nutrition_entries`,
 `update_nutrition_entry`, `delete_nutrition_entry`, `copy_nutrition_entry`,
-`get_nutrition_day`, `get_nutrition_targets`, `set_nutrition_targets`. Parameters
-and descriptions: [mcp-tools.md](mcp-tools.md) (generated from the code).
+`get_nutrition_day`, `get_nutrition_targets`, `set_nutrition_targets`,
+`suggest_nutrition_items` (read-only). `add_nutrition_entry` and
+`update_nutrition_entry` accept `items` with the rules above. Parameters and
+descriptions: [mcp-tools.md](mcp-tools.md) (generated from the code).
 
 ### Plugin examples
 
 **"Breakfast: oatmeal with berries, 350 kcal, 12 g protein, 58 g carbs, 7 g fat."**
 → `add_nutrition_entry{name:"Oatmeal with berries", calories_kcal:350, protein_g:12, carbs_g:58, fat_g:7}`;
 the reply quotes the saved values and id.
+
+**"200 g Greek yogurt with granola and blueberries."** →
+`suggest_nutrition_items{query:"yogurt"}` (and the other ingredients) for values
+logged before, then one `add_nutrition_entry` with three `items`, each with its
+`amount_g` and values for that amount (earlier values scaled by amount, and the
+reply says so; estimates labelled as estimates; unknown values omitted). The
+meal's totals are computed from the items.
 
 **"Two eggs and toast."** (no numbers) → the assistant may estimate, then logs
 and says clearly which values are *its estimates*, never presenting them as
@@ -163,6 +213,9 @@ an open form. See [web/README.md](../web/README.md).
   a revision sequence. It runs automatically on start and does not modify any
   workout table; databases from earlier versions upgrade in place with an empty
   food log.
+* Migration `015_nutrition_items.sql` adds `nutrition_items` (a meal's
+  ingredients, deleted with their entry). Existing entries keep their values
+  and read back with `items: []`.
 * Nutrition lives in the same SQLite file, so `training-mcp backup` and the
   restore procedure ([backup-restore.md](backup-restore.md)) include it with no
   extra steps. Restoring an older backup simply yields no nutrition data (the
@@ -175,7 +228,8 @@ an open form. See [web/README.md](../web/README.md).
 * No food database: values come from you or from the assistant's estimate.
 * The time of day is not stored; entries of a day are ordered by when they were
   logged.
-* No meal templates or recipes; previous entries serve as templates via copy.
+* No meal templates or recipes; previous entries serve as templates via copy,
+  and ingredients used before are suggested with their latest values.
 * Remote changes reach the UI by polling (every 5 s while visible), not push.
 * Upper bounds (20000 kcal / 2000 g per portion) are sanity limits, not
   nutrition advice.

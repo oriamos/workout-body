@@ -188,3 +188,66 @@ func TestNutritionTargets(t *testing.T) {
 		}
 	})
 }
+
+func TestNutritionMealItems(t *testing.T) {
+	transports(t, func(t *testing.T, cs *mcp.ClientSession) {
+		bowl := addEntry(t, cs, map[string]any{"name": "Yogurt bowl", "items": []any{
+			map[string]any{"name": "Greek yogurt", "amount_g": 200, "calories_kcal": 194, "protein_g": 20, "carbs_g": 7.6, "fat_g": 10},
+			map[string]any{"name": "Granola", "amount_g": 40, "calories_kcal": 180, "protein_g": 4, "carbs_g": 26, "fat_g": 6.5},
+			map[string]any{"name": "Blueberries", "amount_g": 80, "calories_kcal": 46, "protein_g": 0.6, "carbs_g": 11.6}, // fat unknown
+		}}).Entry
+		if len(bowl.Items) != 3 || *bowl.CaloriesKcal != 420 || *bowl.ProteinG != 24.6 || *bowl.FatG != 16.5 ||
+			len(bowl.IncompleteValues) != 1 || bowl.IncompleteValues[0] != "fat_g" || bowl.Items[2].FatG != nil {
+			t.Fatalf("bowl = %+v", bowl)
+		}
+		d := nutritionDay(t, cs, "").Day
+		if d.Fat.Consumed != 16.5 || d.Fat.MissingEntries != 1 || d.Calories.MissingEntries != 0 {
+			t.Fatalf("day = %+v", d)
+		}
+
+		// Values on the meal together with items are rejected; item issues name the item.
+		msg := callErr(t, cs, "add_nutrition_entry", map[string]any{"name": "Bad", "calories_kcal": 100, "items": []any{map[string]any{"name": "Rice", "calories_kcal": 130}}})
+		mustContain(t, msg, "items", "per item")
+		msg = callErr(t, cs, "add_nutrition_entry", map[string]any{"name": "Bad", "items": []any{map[string]any{"name": "Rice"}, map[string]any{"name": "Oil", "fat_g": -1}}})
+		mustContain(t, msg, "items[1].fat_g")
+		msg = callErr(t, cs, "update_nutrition_entry", map[string]any{"entry_id": bowl.ID, "calories_kcal": 500})
+		mustContain(t, msg, "items")
+
+		// Replacing the items recomputes; [] removes them and keeps the sums.
+		var upd NutritionEntryOut
+		callOK(t, cs, "update_nutrition_entry", map[string]any{"entry_id": bowl.ID, "expected_revision": bowl.Revision, "items": []any{
+			map[string]any{"name": "Greek yogurt", "amount_g": 150, "calories_kcal": 145.5, "protein_g": 15, "carbs_g": 5.7, "fat_g": 7.5},
+			map[string]any{"name": "Granola", "amount_g": 40, "calories_kcal": 180, "protein_g": 4, "carbs_g": 26, "fat_g": 6.5},
+		}}, &upd)
+		if len(upd.Entry.Items) != 2 || *upd.Entry.CaloriesKcal != 325.5 || len(upd.Entry.IncompleteValues) != 0 || upd.Entry.Revision != bowl.Revision+1 {
+			t.Fatalf("replaced = %+v", upd.Entry)
+		}
+		callOK(t, cs, "update_nutrition_entry", map[string]any{"entry_id": bowl.ID, "items": []any{}}, &upd)
+		if len(upd.Entry.Items) != 0 || *upd.Entry.CaloriesKcal != 325.5 {
+			t.Fatalf("removed = %+v", upd.Entry)
+		}
+		callOK(t, cs, "update_nutrition_entry", map[string]any{"entry_id": bowl.ID, "calories_kcal": 330}, &upd)
+		if *upd.Entry.CaloriesKcal != 330 {
+			t.Fatalf("direct edit = %+v", upd.Entry)
+		}
+
+		// Suggestions: latest use of each ingredient.
+		var sug SuggestItemsOut
+		callOK(t, cs, "suggest_nutrition_items", map[string]any{"query": "yog"}, &sug)
+		// The bowl's items were removed; only an ingredient still on an entry is suggested.
+		if len(sug.Items) != 0 {
+			t.Fatalf("suggestions after removal = %+v", sug.Items)
+		}
+		addEntry(t, cs, map[string]any{"name": "Snack", "items": []any{map[string]any{"name": "Greek yogurt", "amount_g": 170, "calories_kcal": 165, "protein_g": 17}}})
+		callOK(t, cs, "suggest_nutrition_items", map[string]any{"query": "YOGURT", "limit": 5}, &sug)
+		if len(sug.Items) != 1 || sug.Items[0].Name != "Greek yogurt" || *sug.Items[0].AmountG != 170 || sug.Items[0].Uses != 1 || sug.Items[0].LastUsed != "2026-03-10" || sug.Items[0].FatG != nil {
+			t.Fatalf("suggestions = %+v", sug.Items)
+		}
+		callOK(t, cs, "suggest_nutrition_items", map[string]any{}, &sug)
+		if len(sug.Items) != 1 {
+			t.Fatalf("all suggestions = %+v", sug.Items)
+		}
+		msg = callErr(t, cs, "suggest_nutrition_items", map[string]any{"limit": 101})
+		mustContain(t, msg, "limit")
+	})
+}

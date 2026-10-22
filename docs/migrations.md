@@ -9,7 +9,7 @@ half-applied schema. There are no down migrations: restore a backup to go back.
 
 ## Adding one
 
-1. Create the next file, zero-padded: `015_short_name.sql` (up to 014 exist). Never edit one that
+1. Create the next file, zero-padded: `016_short_name.sql` (up to 015 exist). Never edit one that
    has shipped.
 2. `ALTER TABLE … ADD COLUMN` needs a default if the column is `NOT NULL`.
 3. Making a column nullable or adding a `CHECK` needs a table rebuild
@@ -48,7 +48,10 @@ automatically. **Back up first** ([backup-restore.md](backup-restore.md)). It:
   `revision` to plans and sessions.
 * Adds `idempotency_keys`.
 
-Migration `014_weigh_ins.sql` adds the `weigh_ins` table (one body-weight
+Migration `015_nutrition_items.sql` adds the `nutrition_items` table (the
+ingredients of a meal, each with its own optional amount and values, removed
+with their entry; see [nutrition.md](nutrition.md#meals-made-of-ingredients));
+existing entries are untouched and simply have no items. Migration `014_weigh_ins.sql` adds the `weigh_ins` table (one body-weight
 row per local date, see [weight.md](weight.md)); it touches no other table, so an
 upgraded database starts with an empty weight log. Migration `013_nutrition.sql` adds the nutrition tables (entries, effective-dated
 targets, a revision sequence); it touches no workout table, so an upgraded

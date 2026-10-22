@@ -158,7 +158,7 @@ It is part of the plan (returned as `schedule`, `null` when unscheduled), travel
 in plan documents, and is changed with `PUT /plans/{id}/schedule`
 (`{"schedule": {...}}` or `{"schedule": null}`, `If-Match` required).
 
-`GET /schedule?from&to` (default: the current Monday–Sunday week in the server
+`GET /schedule?from&to` (default: the current week — Sunday–Saturday by default, see `WORKOUT_WEEK_START` — in the server
 timezone, at most 62 days) returns `days[]` with each date's `weekday`, whether
 it is `today`, the `workout` stored on it (if any), and the weekday-scheduled
 plans with a status — `done`, `started`, `missed`, `due` or `upcoming` (defined
@@ -168,8 +168,9 @@ frequency plans (`target`, `completed`, `remaining`, `dates`) and
 
 ## Nutrition
 
-`/nutrition/entries`, `/nutrition/days` and `/nutrition/targets` (entries with
-idempotent create and copy, daily summaries against effective-dated targets) are
+`/nutrition/entries`, `/nutrition/items`, `/nutrition/days` and
+`/nutrition/targets` (entries with idempotent create and copy, meals made of
+ingredients, ingredient suggestions, daily summaries against effective-dated targets) are
 documented in [nutrition.md](nutrition.md#http-api) and in the OpenAPI spec.
 They follow the same auth, date, `If-Match` and error rules as this page.
 
@@ -177,7 +178,7 @@ They follow the same auth, date, `If-Match` and error rules as this page.
 
 `/weight/entries` and `/weight/entries/{date}` (one weigh-in per local date;
 `PUT` is an upsert keyed by the date, so `If-Match` is optional there and
-required for `DELETE`) and `/weight/trend` (Monday-start weekly averages and
+required for `DELETE`) and `/weight/trend` (weekly averages over the configured week and
 week-over-week change) are documented in [weight.md](weight.md#http-api) and in
 the OpenAPI spec. Without store support they answer `501 weight_disabled`.
 

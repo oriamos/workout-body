@@ -10,7 +10,7 @@ import (
 )
 
 // Body-weight tracking: one weigh-in per local date, weekly averages and the
-// week-over-week change. Weeks start on Monday, like the rest of the engine.
+// week-over-week change. Weeks follow the configured week start (Service.WeekStartDay).
 
 const (
 	MinWeighInKg       = 20
@@ -33,7 +33,7 @@ type WeighIn struct {
 	UpdatedAt string  `json:"updated_at"`
 }
 
-// WeightWeek summarizes one Monday-to-Sunday week. Averages use only the days
+// WeightWeek summarizes one week (from the configured week start). Averages use only the days
 // that have a weigh-in; a week without any has null statistics.
 type WeightWeek struct {
 	WeekStart  string   `json:"week_start"`
@@ -169,7 +169,7 @@ func trendOf(change float64) string {
 	}
 }
 
-// WeightTrendFor returns the last `weeks` Monday-start weeks ending with the
+// WeightTrendFor returns the last `weeks` weeks (configured week start) ending with the
 // week containing `to` (today when empty), with averages and week-over-week
 // changes. weeks defaults to 8 (max 104).
 func (s *Service) WeightTrendFor(ctx context.Context, to string, weeks int) (WeightTrend, error) {
@@ -187,7 +187,7 @@ func (s *Service) WeightTrendFor(ctx context.Context, to string, weeks int) (Wei
 	if err != nil {
 		return WeightTrend{}, invalid("to", "%q is not a valid calendar date; use YYYY-MM-DD", to)
 	}
-	lastStart, _ := time.Parse("2006-01-02", weekStart(end))
+	lastStart, _ := time.Parse("2006-01-02", s.weekStart(end))
 	first := lastStart.AddDate(0, 0, -7*(weeks-1))
 	// One extra week before the range so the first week has a comparison.
 	prior := first.AddDate(0, 0, -7)
@@ -198,7 +198,7 @@ func (s *Service) WeightTrendFor(ctx context.Context, to string, weeks int) (Wei
 	out := WeightTrend{From: first.Format("2006-01-02"), To: end, Today: s.Today(), Weeks: []WeightWeek{}, Entries: []WeighIn{}}
 	byWeek := map[string][]float64{}
 	for _, e := range entries {
-		byWeek[weekStart(e.Date)] = append(byWeek[weekStart(e.Date)], e.WeightKG)
+		byWeek[s.weekStart(e.Date)] = append(byWeek[s.weekStart(e.Date)], e.WeightKG)
 		if e.Date >= out.From {
 			out.Entries = append(out.Entries, e)
 		}
