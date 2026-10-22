@@ -26,13 +26,22 @@ type Service struct {
 	clock Clock
 	loc   *time.Location
 
+	// Nutrition tracking, available when the store implements NutritionStore.
+	nut NutritionStore
+
 	// Optional video storage, enabled with WithMedia.
 	media    MediaStore
 	blobs    BlobStore
 	maxVideo int64
 }
 
-func NewService(store Store, clock Clock) *Service { return &Service{store: store, clock: clock} }
+func NewService(store Store, clock Clock) *Service {
+	s := &Service{store: store, clock: clock}
+	if ns, ok := store.(NutritionStore); ok {
+		s.nut = ns
+	}
+	return s
+}
 
 // WithLocation sets the timezone that decides which calendar date "today" is.
 // Without it the clock's own location is used.
