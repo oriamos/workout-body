@@ -18,3 +18,9 @@ dist
 .vite
 *.log
 .claude/skills/impeccable/scripts/.cache
+
+# The built web UI is copied here before `go build` to embed it
+# (scripts/build-ui.sh); only the placeholder is tracked.
+!internal/uisrv/dist/
+internal/uisrv/dist/*
+!internal/uisrv/dist/.gitkeep

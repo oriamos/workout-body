@@ -66,10 +66,24 @@ func Routes(mcp http.Handler, authDisabled bool, token string, web *WebUI) http.
 // body cap: video uploads are larger, so the API enforces its own per-route
 // limits.
 func RoutesWithAPI(mcp, api http.Handler, authDisabled bool, token string, web *WebUI) http.Handler {
+	return RoutesWithUI(mcp, api, nil, authDisabled, token, web)
+}
+
+// RoutesWithUI also mounts the built-in web UI at the root. With a UI, the API
+// additionally accepts the UI's browser session cookie; /mcp stays
+// bearer-only.
+func RoutesWithUI(mcp, api, ui http.Handler, authDisabled bool, token string, web *WebUI) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", MaxBody(Bearer(token, authDisabled, mcp)))
 	if api != nil {
-		mux.Handle("/api/v1/", Bearer(token, authDisabled, api))
+		if ui != nil {
+			mux.Handle("/api/v1/", BearerOrSession(token, authDisabled, api))
+		} else {
+			mux.Handle("/api/v1/", Bearer(token, authDisabled, api))
+		}
+	}
+	if ui != nil {
+		mux.Handle("/", MaxBody(ui))
 	}
 	if web != nil && web.Handler != nil && web.BasePath != "" {
 		// The secret path is the outer gate, but the same bearer still guards

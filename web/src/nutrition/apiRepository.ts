@@ -2,6 +2,7 @@
 import { ApiError } from '../data/apiRepository';
 import type { NutritionRepository } from './repository';
 import type { EntryFilter, ItemSuggestion, NutritionDay, NutritionEntry, NutritionTargets } from './types';
+import { onUnauthorized } from '../lib/session';
 
 const BASE = '/api/v1/nutrition';
 
@@ -19,7 +20,10 @@ async function req<T>(method: string, path: string, opts: { json?: unknown; head
   let data: unknown = null;
   try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
   if (!r.ok) {
-    if (r.status === 401) throw new ApiError(401, 'unauthorized', 'השרת דחה את ההרשאה. ודא ש־WORKOUT_API_TOKEN מוגדר בפרוקסי.');
+    if (r.status === 401) {
+      onUnauthorized();
+      throw new ApiError(401, 'unauthorized', 'השרת דחה את ההרשאה. ודא ש־WORKOUT_API_TOKEN מוגדר בפרוקסי.');
+    }
     if (r.status === 412) throw new ApiError(412, 'precondition_failed', 'הנתון השתנה במקום אחר (למשל דרך העוזר). הערכים העדכניים נטענו, והשינוי שלך לא נשמר.');
     if (r.status === 404 && !data) throw new ApiError(404, 'not_found', 'מעקב התזונה לא זמין בשרת הזה.');
     const e = (data as { error?: { code: string; message: string; issues?: { field: string; message: string }[] } } | null)?.error;

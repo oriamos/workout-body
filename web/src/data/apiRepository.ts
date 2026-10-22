@@ -18,6 +18,7 @@ import {
 } from './apiMapping';
 import { exerciseMeta, notesFor, pendingFor, setLocalNote, setPending, setStartedAt, startedAtFor } from './localMeta';
 import { addDays } from '../lib/format';
+import { onUnauthorized } from '../lib/session';
 
 export class ApiError extends Error {
   readonly isApiError = true;
@@ -66,7 +67,10 @@ export function createApiRepository(base = '/api/v1'): WorkoutRepository {
     let data: unknown = null;
     try { data = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
     if (!r.ok) {
-      if (r.status === 401) throw new ApiError(401, 'unauthorized', 'השרת דחה את ההרשאה. ודא ש־WORKOUT_API_TOKEN מוגדר בפרוקסי.');
+      if (r.status === 401) {
+        onUnauthorized();
+        throw new ApiError(401, 'unauthorized', 'השרת דחה את ההרשאה. ודא ש־WORKOUT_API_TOKEN מוגדר בפרוקסי.');
+      }
       const e = (data as { error?: { code: string; message: string; issues?: { field: string; message: string }[] } } | null)?.error;
       if (e) throw new ApiError(r.status, e.code, e.message, e.issues ?? []);
       if (r.status === 502 || r.status === 504) throw new ApiError(r.status, 'proxy', 'שרת האימונים לא זמין כרגע.');

@@ -22,6 +22,22 @@ localhost.
 
 `GET /health` is unauthenticated and returns `{"status":"ok"}`.
 
+## Web UI
+
+The React UI in `web/` is embedded in the binary when it is built first:
+`scripts/build-ui.sh` (needs Node 20+), then `go build ./cmd/training-mcp`. The
+Docker image builds and embeds it automatically. It is served at `/`:
+
+* `/login` asks for the bearer token once and sets an HttpOnly session cookie;
+  the API accepts that cookie, so the browser never holds the token.
+* Settings → "התנתק" (`POST /logout`) signs the browser out. Changing
+  `MCP_BEARER_TOKEN` signs out every browser.
+* A binary built without the UI still serves the API and MCP; `/` then explains
+  how to build the UI.
+* Behind a tunnel or reverse proxy, expose `/` as well as `/mcp`, `/api/v1` and
+  `/health`, and make sure the proxy sets `X-Forwarded-Proto: https` (Cloudflare
+  Tunnel does) so the cookie is marked Secure.
+
 ## Docker
 
 ```sh
@@ -38,7 +54,8 @@ volume. Back that volume up ([backup-restore.md](backup-restore.md)).
 ## HTTPS and clients
 
 * Put a reverse proxy (Caddy, nginx, Traefik) or a tunnel in front, forward
-  `/mcp`, `/api/v1` and `/health`, and keep the app bound to localhost.
+  `/` (the web UI), `/mcp`, `/api/v1` and `/health`, and keep the app bound to
+  localhost.
 * Remote clients that cannot send a static `Authorization` header (some hosted
   connectors) cannot use this server directly — see
   [plugin-setup.md](plugin-setup.md).

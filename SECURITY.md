@@ -22,6 +22,15 @@ machine you control, behind HTTPS.
 * The server speaks plain HTTP. Terminate TLS in front of it (reverse proxy,
   tunnel) for anything beyond localhost, otherwise the token travels in the
   clear.
+* The built-in web UI (served at `/` when built into the binary) is gated by a
+  login page. Logging in with the bearer token sets the `wb_session` cookie:
+  HttpOnly, `SameSite=Strict`, `Secure` over HTTPS (also behind a proxy that sets
+  `X-Forwarded-Proto: https`), valid 180 days. Its value is an HMAC of the token,
+  so the browser never stores the token and changing the token signs every
+  browser out. The cookie is accepted by `/api/v1` only, never by `/mcp`;
+  cookie-authenticated state changes marked cross-site (`Sec-Fetch-Site`) are
+  refused. Failed logins are delayed. The UI pages carry a strict
+  Content-Security-Policy, `X-Frame-Options: DENY` and `nosniff`.
 * The optional upstream PWA (`WEB_BASE_PATH`) is protected by the same bearer
   token *and* a secret URL prefix, has no CSRF protection, and is off by default.
   Do not expose it to the internet without understanding that.

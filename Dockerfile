@@ -1,5 +1,14 @@
 # syntax=docker/dockerfile:1
 
+# ---- web UI ---------------------------------------------------------------
+# The React UI in web/ is built here and embedded into the binary below.
+FROM node:22-alpine AS ui
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
 # ---- build ----------------------------------------------------------------
 # modernc.org/sqlite is a pure-Go driver, so the binary builds with CGO_ENABLED=0
 # and links statically. That is what allows the distroless runtime stage below.
@@ -10,6 +19,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+COPY --from=ui /web/dist/ ./internal/uisrv/dist/
 RUN CGO_ENABLED=0 GOOS=linux go build \
       -trimpath \
       -ldflags="-s -w" \

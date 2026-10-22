@@ -105,7 +105,18 @@ curl -s -X POST localhost:8080/api/v1/workouts/today/sets \
 curl -s -H "Authorization: Bearer $MCP_BEARER_TOKEN" localhost:8080/api/v1/workouts/today
 ```
 
-Run the web UI against it: [web/README.md](web/README.md) (`cd web && npm install && WORKOUT_API_TOKEN="$MCP_BEARER_TOKEN" npm run dev`).
+**The web UI inside the binary.** Build it once and it is served at `/`, behind
+a login page that takes the bearer token and keeps the browser signed in with a
+session cookie (the token itself is never stored in the browser):
+
+```sh
+scripts/build-ui.sh                      # builds web/ and copies it into internal/uisrv/dist
+go build -o training-mcp ./cmd/training-mcp
+./training-mcp                           # open http://localhost:8080 and log in with the token
+```
+
+The Docker image does this automatically. For UI development with hot reload:
+[web/README.md](web/README.md) (`cd web && npm install && WORKOUT_API_TOKEN="$MCP_BEARER_TOKEN" npm run dev`).
 Connect an assistant: [docs/plugin-setup.md](docs/plugin-setup.md). Docker:
 [docs/deployment.md](docs/deployment.md).
 
@@ -143,8 +154,9 @@ Flags: `--addr :8080`, `--stdio`. Commands: `backup <file>`, `media-gc`. See
 
 ## Security in one paragraph
 
-A single static bearer token guards the API and MCP; there is no OAuth or
-multi-user model. Run it behind HTTPS if it leaves your machine and never commit
+A single static bearer token guards the API and MCP; the built-in web UI logs in
+with that token once and then uses an HttpOnly, SameSite=Strict session cookie
+(accepted by the API, never by `/mcp`). There is no OAuth or multi-user model. Run it behind HTTPS if it leaves your machine and never commit
 tokens, `.env` files, databases or real training data. Details and reporting:
 [SECURITY.md](SECURITY.md).
 

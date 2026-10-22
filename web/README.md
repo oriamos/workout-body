@@ -11,7 +11,16 @@ The UI talks to data only through `WorkoutRepository` (`src/data/repository.ts`)
 | unset / `api` (default) | `src/data/apiRepository.ts` | real engine through the same-origin proxy |
 | `mock` | `createMockRepository` in `repository.ts` | synthetic seed in memory; prototype controls (flask) visible |
 
-## Run against the engine
+## Served by the engine (production)
+
+`scripts/build-ui.sh` (repo root) builds this UI and copies it into
+`internal/uisrv/dist`; the next `go build ./cmd/training-mcp` embeds it and the
+binary serves it at `/` behind a login page (bearer token once → session
+cookie). No proxy and no token in the browser. In that build, a 401 from the API
+sends the browser to `/login`, and Settings has a logout button
+(`src/lib/session.ts`). The Docker image does all of this.
+
+## Run against the engine (development)
 
 ```sh
 # 1. the engine (repo root)
@@ -65,6 +74,7 @@ can use the token. Do not add `--host` in api mode on an untrusted network.
 | `npm run test:nutrition` | nutrition end-to-end against a real engine, same setup (`scripts/nutrition-flows.mjs`) |
 | `npm run test:weight` | weight end-to-end against a real engine, same setup (`scripts/weight-flows.mjs`) |
 | `npm run test:api` | end-to-end against a real engine: starts `go run ./cmd/training-mcp` on a temp DB and Vite itself, drives Chromium (`scripts/api-flows.mjs`) |
+| `npm run test:served` | the UI as served by the binary: builds and embeds the UI, builds the binary, drives login → week → weight → nutrition write → logout and checks the CSP (`scripts/served-flows.mjs`) |
 | `npm run test:mock` | prototype interaction checks; needs `npm run dev:mock` running on :5173 (`scripts/flows.mjs`) |
 
 The browser scripts use `playwright-core` with Chromium at `/opt/pw-browsers/chromium`.

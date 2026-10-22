@@ -1,6 +1,7 @@
-import { Sheet, Segmented } from './ui';
+import { Button, Sheet, Segmented } from './ui';
 import { setPref, usePrefs } from '../lib/prefs';
 import { IS_MOCK } from '../data/source';
+import { SERVED_BY_ENGINE } from '../lib/session';
 
 /** Secondary and deliberately small. Only the choices the prototype can honour. */
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -33,6 +34,15 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           <p className="muted small">פרוטוטיפ: הנתונים לדוגמה ונשמרים בזיכרון הדף בלבד. טעינה מחדש מחזירה אותם למצב ההתחלתי.</p>
         ) : (
           <p className="muted small">אימונים, סטים, תוכניות וסרטונים נשמרים בשרת האימונים. ציוד, זמן מנוחה, שעת התחלה, תרגיל שנוסף בלי סט והערה לתרגיל שאינו בתוכנית נשמרים בדפדפן הזה בלבד.</p>
+        )}
+        {SERVED_BY_ENGINE && (
+          <form method="post" action="/logout" className="form-row">
+            <div>
+              <b>התנתקות</b>
+              <p className="muted small">מנתק את הדפדפן הזה. כדי להיכנס שוב צריך את הטוקן של השרת.</p>
+            </div>
+            <Button type="submit" size="sm">התנתק</Button>
+          </form>
         )}
       </div>
     </Sheet>

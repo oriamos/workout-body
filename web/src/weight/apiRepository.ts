@@ -2,6 +2,7 @@
 import { ApiError } from '../data/apiRepository';
 import type { WeightRepository } from './repository';
 import type { WeighIn, WeightTrend } from './types';
+import { onUnauthorized } from '../lib/session';
 
 const BASE = '/api/v1/weight';
 export const STALE_MSG = 'השקילה השתנתה במקום אחר (למשל דרך העוזר).';
@@ -26,7 +27,10 @@ async function req<T>(method: string, path: string, opts: { json?: unknown; head
   let data: unknown = null;
   try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
   if (!r.ok) {
-    if (r.status === 401) throw new ApiError(401, 'unauthorized', 'השרת דחה את ההרשאה. ודא ש־WORKOUT_API_TOKEN מוגדר בפרוקסי.');
+    if (r.status === 401) {
+      onUnauthorized();
+      throw new ApiError(401, 'unauthorized', 'השרת דחה את ההרשאה. ודא ש־WORKOUT_API_TOKEN מוגדר בפרוקסי.');
+    }
     if (r.status === 412) throw new ApiError(412, 'precondition_failed', STALE_MSG);
     if (r.status === 501 || (r.status === 404 && !data)) throw new ApiError(r.status, 'weight_disabled', 'מעקב המשקל לא זמין בשרת הזה.');
     const e = (data as { error?: { code: string; message: string; issues?: { field: string; message: string }[] } } | null)?.error;

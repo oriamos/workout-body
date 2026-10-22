@@ -1,0 +1,12 @@
+.git
+.atl
+.credentials
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+web/node_modules
+web/dist
+internal/uisrv/dist/*
+!internal/uisrv/dist/.gitkeep
