@@ -37,7 +37,7 @@ completed sets, the second corrected to 7 reps, and squats **planned** as 3×4 a
 values; the engine validates and stores them. See
 [docs/mcp-examples.md](docs/mcp-examples.md).
 
-Also: keep a simple **nutrition log** (calories and macros per meal, daily targets that apply from a date forward, daily summaries — [docs/nutrition.md](docs/nutrition.md)), give a plan a fixed schedule (fixed weekdays or N times a week) and see what is due this week, import/export plans as JSON, read planned-vs-completed progress, look at
+Also: keep a simple **nutrition log** (calories and macros per meal, daily targets that apply from a date forward, daily summaries — [docs/nutrition.md](docs/nutrition.md)), log a daily **body weight** and read weekly averages with the week-over-week change ([docs/weight.md](docs/weight.md)), give a plan a fixed schedule (fixed weekdays or N times a week) and see what is due this week, import/export plans as JSON, read planned-vs-completed progress, look at
 exercise history and progression, attach a video to a set, and keep written
 instructions plus how-to videos per exercise.
 
@@ -130,7 +130,7 @@ Flags: `--addr :8080`, `--stdio`. Commands: `backup <file>`, `media-gc`. See
 * [Engine and data model](docs/engine.md) · [Analytics](docs/analytics.md)
 * [HTTP API](docs/http-api.md) ([OpenAPI](internal/apisrv/openapi.yaml)) ·
   [MCP tools](docs/mcp-tools.md) · [MCP examples](docs/mcp-examples.md)
-* [Nutrition tracking](docs/nutrition.md)
+* [Nutrition tracking](docs/nutrition.md) · [Body weight](docs/weight.md)
 * [Plan format](docs/plan-format.md) ([schema](docs/schemas/workout-plan.v1.schema.json),
   [example](docs/examples/plan-upper-lower.json)) · [Videos and how-to](docs/media.md)
 * [Plugin and client setup](docs/plugin-setup.md)

@@ -3,7 +3,7 @@
 <!-- GENERATED from the registered tools by internal/mcpsrv/docs_test.go. Do not edit by hand; run:
      go test ./internal/mcpsrv -run ToolReference -update-docs -->
 
-This server registers 61 tools. Descriptions below are exactly what the model receives.
+This server registers 65 tools. Descriptions below are exactly what the model receives.
 
 Worked examples with real calls and results: [mcp-examples.md](mcp-examples.md). Connection and plugin setup: [plugin-setup.md](plugin-setup.md).
 
@@ -30,6 +30,7 @@ Conventions that apply to every tool:
 | [`delete_session`](#delete_session) | destructive write |
 | [`delete_set`](#delete_set) | destructive write |
 | [`delete_video`](#delete_video) | destructive write |
+| [`delete_weigh_in`](#delete_weigh_in) | destructive write |
 | [`exercise_history`](#exercise_history) | read-only |
 | [`exercise_stats`](#exercise_stats) | read-only |
 | [`export_plan`](#export_plan) | read-only |
@@ -41,6 +42,8 @@ Conventions that apply to every tool:
 | [`get_schedule`](#get_schedule) | read-only |
 | [`get_session`](#get_session) | read-only |
 | [`get_set`](#get_set) | read-only |
+| [`get_weigh_in`](#get_weigh_in) | read-only |
+| [`get_weight_trend`](#get_weight_trend) | read-only |
 | [`get_workout`](#get_workout) | read-only |
 | [`import_plan`](#import_plan) | destructive write |
 | [`list_exercise_groups`](#list_exercise_groups) | read-only |
@@ -53,6 +56,7 @@ Conventions that apply to every tool:
 | [`list_volume_landmarks`](#list_volume_landmarks) | read-only |
 | [`log_set`](#log_set) | write |
 | [`log_sets`](#log_sets) | write |
+| [`log_weigh_in`](#log_weigh_in) | destructive write |
 | [`move_plan_exercise`](#move_plan_exercise) | destructive write |
 | [`record_feedback`](#record_feedback) | destructive write |
 | [`remove_exercise_alias`](#remove_exercise_alias) | destructive write |
@@ -244,6 +248,17 @@ Permanently delete one video (of a set or of an exercise) and its stored file. I
 |---|---|---|---|
 | `media_id` | integer | yes | Id of the video (from list_set_videos or get_exercise_guide). |
 
+## delete_weigh_in
+
+**Delete weigh-in** — destructive write
+
+Permanently delete the weigh-in of one local date. Irreversible: confirm with the user first, naming the date and the weight. To correct a value, call log_weigh_in for that date instead (it replaces). expected_revision (optional) makes the write fail with a conflict if the target changed since you read it; on conflict re-read and retry.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `date` | string | yes | Local date YYYY-MM-DD of the weigh-in to delete. |
+| `expected_revision` | integer | no | The weigh-in's revision from your last read; rejected with a conflict if it changed since. |
+
 ## exercise_history
 
 **Exercise history** — read-only
@@ -359,6 +374,27 @@ Read one completed set by its stable id, including its current revision. Values 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `set_id` | integer | yes | Stable id of the set. |
+
+## get_weigh_in
+
+**Get weigh-in** — read-only
+
+Read the weigh-in of one local date (today when omitted). found=false (and no weigh_in) when nothing was logged that day - do not make a value up. Always returns today and the timezone. For several days or how the weight is going, use get_weight_trend. Body weight is in kilograms (20-400 kg). If the user gives pounds, convert to kg yourself (1 lb = 0.45359237 kg) and tell them you converted.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `date` | string | no | Local date YYYY-MM-DD. Omit for today. |
+
+## get_weight_trend
+
+**Get weight trend** — read-only
+
+How the user's body weight is going: the last `weeks` weeks (default 8) ending with the week that contains `to` (default today), oldest first, each with days_logged, average_kg, min_kg, max_kg, change_kg, change_pct and trend; plus the weigh-ins in the range, latest (the most recent weigh-in on or before `to`) and overall_change_kg (last week with data minus the first one). Weeks run Monday to Sunday. A week's average_kg (and min_kg/max_kg) uses only the days that have a weigh-in (days_logged says how many); change_kg/change_pct compare it with the previous week's average. A null average or change means there is not enough data (no weigh-in that week or the week before) - report it as missing and never invent, estimate or interpolate a number for it. trend is up, down or flat (|change_kg| < 0.1 kg). Daily weight fluctuates; the weekly average is the signal. Read-only. Body weight is in kilograms (20-400 kg). If the user gives pounds, convert to kg yourself (1 lb = 0.45359237 kg) and tell them you converted.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `to` | string | no | Local date YYYY-MM-DD the view ends on (its week is the last one). Omit for today. |
+| `weeks` | integer | no | How many weeks to return, 1-104. Defaults to 8. |
 
 ## get_workout
 
@@ -493,6 +529,19 @@ Primary write for incremental logging. In one atomic transaction: finds or creat
 | `plan_id` | integer | no | Optional plan to copy into the workout when it follows no plan yet. A workout already following a different plan is a conflict. |
 | `prescriptions` | array of object | no | Planned work to add or merge into this workout's prescription (at most 40). Merging keeps stored fields you omit. Never creates completed sets. |
 | `sets` | array of object | no | Completed sets to append, in the order performed (at most 100). Only include sets the user actually did. |
+
+## log_weigh_in
+
+**Log weigh-in** — destructive write
+
+Record the user's body weight for a date (today when omitted). There is at most one weigh-in per local date: logging a date that already has one REPLACES it, and sending the same values again changes nothing, so a retry after a timeout is harmless and needs no key. Returns the stored weigh_in (date, weight_kg, note, revision), created (false when it replaced or matched an existing weigh-in), today and timezone. Body weight is in kilograms (20-400 kg). If the user gives pounds, convert to kg yourself (1 lb = 0.45359237 kg) and tell them you converted. Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today there. A weigh-in cannot be logged for a future date. Body weight never creates or changes a workout.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `date` | string | no | Local date YYYY-MM-DD of the weigh-in. Omit for today. |
+| `expected_revision` | integer | no | Optional. The weigh-in's revision from your last read; 0 means the date must not have a weigh-in yet. Rejected with a conflict if it does not match. |
+| `note` | string | no | Optional short note the user gave (at most 200 characters), e.g. 'after travel'. |
+| `weight_kg` | number | yes | Body weight in kilograms, 20-400. Convert pounds to kg first. |
 
 ## move_plan_exercise
 

@@ -173,6 +173,14 @@ idempotent create and copy, daily summaries against effective-dated targets) are
 documented in [nutrition.md](nutrition.md#http-api) and in the OpenAPI spec.
 They follow the same auth, date, `If-Match` and error rules as this page.
 
+## Body weight
+
+`/weight/entries` and `/weight/entries/{date}` (one weigh-in per local date;
+`PUT` is an upsert keyed by the date, so `If-Match` is optional there and
+required for `DELETE`) and `/weight/trend` (Monday-start weekly averages and
+week-over-week change) are documented in [weight.md](weight.md#http-api) and in
+the OpenAPI spec. Without store support they answer `501 weight_disabled`.
+
 ## Not provided
 
 No pagination cursors (history is bounded by `limit`), no webhooks, no bulk

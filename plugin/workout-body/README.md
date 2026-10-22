@@ -15,6 +15,11 @@ The `nutrition-logging` skill covers food entries (calories in kcal, macros in
 grams for the whole portion): explicit values, clearly labelled estimates,
 repeating a meal by finding it and calling `copy_nutrition_entry`, corrections
 by entry id with `expected_revision`, and targets set only when the user asks.
+The `weight-tracking` skill covers daily weigh-ins: a reported weight is logged
+for today in the user's timezone in kg (pounds are converted and the conversion
+is said), no nagging, "how is it going" answered from `get_weight_trend`
+(weekly average and week-over-week change; daily fluctuations are normal, the
+weekly average is the signal; nulls are never filled in), and no medical advice.
 
 Verification status is in [`../README.md`](../README.md). In short: the MCP
 server's tools are tested with the Go MCP SDK client; installing this plugin
@@ -28,7 +33,8 @@ in Claude Code has **not** been verified.
 | `.mcp.json` | MCP server entry: Streamable HTTP with a static bearer token. |
 | `skills/workout-logging/SKILL.md` | Assistant instructions, loaded as a skill. |
 | `skills/nutrition-logging/SKILL.md` | Food/macro logging instructions, loaded as a skill. |
-| `assistant-instructions.md` | Both skills as plain text, for clients without skills. |
+| `skills/weight-tracking/SKILL.md` | Body-weight (weigh-in) instructions, loaded as a skill. |
+| `assistant-instructions.md` | All three skills as plain text, for clients without skills. |
 
 ## HTTP setup (default)
 

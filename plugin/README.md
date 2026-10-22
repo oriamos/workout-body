@@ -3,7 +3,7 @@
 This directory holds client-side packaging for the workout-body MCP server.
 
 - [`workout-body/`](workout-body/) - Claude Code plugin: MCP server entry,
-  `workout-logging` and `nutrition-logging` skills, and the same instructions as plain text
+  `workout-logging`, `nutrition-logging` and `weight-tracking` skills, and the same instructions as plain text
   (`workout-body/assistant-instructions.md`) for clients without skills.
 - [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) - a
   local marketplace listing that plugin, so it can be added from a checkout.
@@ -43,7 +43,13 @@ against the real service on a temporary SQLite database:
   update and clear, copy and its independence, retry replay vs intentional
   duplicate, stale-revision conflicts for entries and targets, target changes
   that leave earlier dates intact, invalid values with field paths, future
-  dates rejected, and no workout created by nutrition.
+  dates rejected, and no workout created by nutrition;
+- body weight: logging, same-value retries without a revision bump,
+  replacement of a day's weigh-in, stale-revision conflicts, range and
+  future-date validation, `found: false` for an empty day, weekly averages and
+  week-over-week change (null without a previous week), delete with a revision
+  guard and recomputed trend, and the error text when the store lacks weight
+  support.
 
 ### Checked against the documentation, but not run
 
@@ -66,8 +72,8 @@ Run `claude plugin validate ./plugin` and `claude plugin validate
 
 ### Not verified (never run)
 
-- **Installing the plugin in Claude Code** and whether the `workout-logging`
-  and `nutrition-logging` skills trigger at the right moments.
+- **Installing the plugin in Claude Code** and whether the `workout-logging`,
+  `nutrition-logging` and `weight-tracking` skills trigger at the right moments.
 - **Claude.ai and Claude Desktop custom connectors.** Anthropic's connector
   documentation describes custom *request headers* for fixed credentials such as
   a bearer token, so this server's static token is a documented fit. But the

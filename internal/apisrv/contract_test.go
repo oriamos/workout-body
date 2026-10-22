@@ -191,7 +191,8 @@ func TestContractSpecIsWellFormed(t *testing.T) {
 	for _, name := range []string{"SetInput", "Set", "Workout", "ProgressItem", "Prescription", "BatchResult",
 		"PlanDocument", "Plan", "Exercise", "ExerciseStats", "TrainingSummary", "Error", "SetType", "SetPatch",
 		"Media", "ExerciseGuide", "Schedule", "ScheduleView", "ScheduleDay", "ScheduledPlan", "WorkoutRef", "WeeklyTarget",
-		"NutritionEntry", "NutritionEntryInput", "NutritionEntryPatch", "NutritionTargets", "NutrientSummary", "NutritionDay", "TargetsPatch"} {
+		"NutritionEntry", "NutritionEntryInput", "NutritionEntryPatch", "NutritionTargets", "NutrientSummary", "NutritionDay", "TargetsPatch",
+		"WeighIn", "WeighInInput", "WeightWeek", "WeightTrend"} {
 		if schemas[name] == nil {
 			t.Errorf("components.schemas.%s is missing", name)
 		}

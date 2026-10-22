@@ -29,6 +29,7 @@ const (
 	codePayloadTooLarge      = "payload_too_large"
 	codeMediaDisabled        = "media_disabled"
 	codeNutritionDisabled    = "nutrition_disabled"
+	codeWeightDisabled       = "weight_disabled"
 )
 
 type errorBody struct {
@@ -87,6 +88,8 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		ae = &apiError{status: http.StatusNotImplemented, Code: codeMediaDisabled, Message: "video storage is not configured on this server"}
 	case errors.Is(err, training.ErrNutritionDisabled):
 		ae = &apiError{status: http.StatusNotImplemented, Code: codeNutritionDisabled, Message: "nutrition tracking is not available on this server"}
+	case errors.Is(err, training.ErrWeightDisabled):
+		ae = &apiError{status: http.StatusNotImplemented, Code: codeWeightDisabled, Message: "weight tracking is not available on this server"}
 	case errors.Is(err, training.ErrValidation):
 		ae = &apiError{status: http.StatusBadRequest, Code: codeValidation, Message: err.Error(), Issues: training.IssuesOf(err)}
 	case errors.Is(err, training.ErrNotFound):

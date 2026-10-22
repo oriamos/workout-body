@@ -3,7 +3,7 @@
 Your data is two things:
 
 1. the **SQLite database** (`TRAINING_DB_PATH`, `/data/training.db` in Docker) —
-   workouts, plans **and nutrition** — and
+   workouts, plans, nutrition **and body weight** — and
 2. **uploaded videos** in `MEDIA_DIR` (default: `media/` beside the database,
    `/data/media` in Docker). Only video files live there; metadata is in the
    database.

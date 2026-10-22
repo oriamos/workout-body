@@ -15,8 +15,8 @@ verified for each client.
 ## Claude Code
 
 The plugin lives in [`plugin/workout-body`](../plugin/workout-body/): an MCP
-entry (`.mcp.json`), the `workout-logging` skill, and the same instructions as
-plain text.
+entry (`.mcp.json`), the `workout-logging`, `nutrition-logging` and
+`weight-tracking` skills, and the same instructions as plain text.
 
 ```sh
 export WORKOUT_MCP_URL="https://your-host.example/mcp"   # or http://localhost:8080/mcp

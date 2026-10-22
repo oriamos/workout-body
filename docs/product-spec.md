@@ -56,6 +56,14 @@ from entries, optional effective-dated targets, copy of previous meals, MCP
 tools for the assistant and a basic UI. No food database, recognition, barcode
 scanning or templates.
 
+## Body weight
+
+A daily weigh-in log ([weight.md](weight.md)): one value in kg per local date
+(logging again replaces it, so retries are harmless), weekly Monday-start
+averages over the logged days with the week-over-week change (null when there is
+not enough data, never interpolated), MCP tools and a plugin skill. No
+measurements, goals, projections or medical advice.
+
 ## Non-goals (this phase)
 
 An in-app chatbot or LLM calls, multi-user accounts or RBAC,
