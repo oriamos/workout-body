@@ -48,7 +48,9 @@ automatically. **Back up first** ([backup-restore.md](backup-restore.md)). It:
   `revision` to plans and sessions.
 * Adds `idempotency_keys`.
 
-Migration `012_plan_schedule.sql` adds the optional plan schedule columns
+Migration `013_nutrition.sql` adds the nutrition tables (entries, effective-dated
+targets, a revision sequence); it touches no workout table, so an upgraded
+database starts with an empty food log. Migration `012_plan_schedule.sql` adds the optional plan schedule columns
 (existing plans simply have none). Migration `011_media_and_instructions.sql` adds the `media` table (video
 metadata; the files live in `MEDIA_DIR`) and `exercises.instructions`. Both
 run automatically on first start.

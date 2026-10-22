@@ -101,6 +101,18 @@ func (s *Server) register() {
 
 	s.handle("GET", "/stats/summary", s.statsSummary)
 
+	s.handle("GET", "/nutrition/entries", s.listNutritionEntries)
+	s.handle("POST", "/nutrition/entries", s.addNutritionEntry)
+	s.handle("GET", "/nutrition/entries/{id}", s.getNutritionEntry)
+	s.handle("PATCH", "/nutrition/entries/{id}", s.patchNutritionEntry)
+	s.handle("DELETE", "/nutrition/entries/{id}", s.deleteNutritionEntry)
+	s.handle("POST", "/nutrition/entries/{id}/copy", s.copyNutritionEntry)
+	s.handle("GET", "/nutrition/days", s.nutritionDays)
+	s.handle("GET", "/nutrition/days/{date}", s.nutritionDay)
+	s.handle("GET", "/nutrition/targets", s.getNutritionTargets)
+	s.handle("PUT", "/nutrition/targets/{date}", s.putNutritionTargets)
+	s.handle("DELETE", "/nutrition/targets/{date}", s.deleteNutritionTargets)
+
 	// Anything else under the prefix is a JSON 404, or a JSON 405 when the path
 	// exists for other methods.
 	s.mux.HandleFunc(Prefix+"/", s.fallback)

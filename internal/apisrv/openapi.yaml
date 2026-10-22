@@ -42,6 +42,15 @@ info:
       container is verified from the bytes, never from `Content-Type` or the
       file name. When the server has no media storage, media endpoints answer
       `501 media_disabled`.
+    - **Nutrition**: one entry per portion actually eaten, with kcal and grams
+      for the *whole portion* (not per 100 g). A nutrient that is `null` was
+      not provided and is never treated as 0; values are finite and >= 0.
+      Entries are dated by consumption date in the server timezone (today or
+      earlier). Day totals are computed from the entries on every read.
+      Targets are effective-dated: a change applies from its date until the
+      next change and never alters earlier dates. Nutrition never creates or
+      touches a workout. Without nutrition support the endpoints answer
+      `501 nutrition_disabled`.
     - **Errors** always use the `Error` envelope. `500` responses never carry
       internal details (they are logged server-side).
     - **Authentication** is a bearer token applied by the outer server layer.
@@ -57,6 +66,7 @@ tags:
   - name: exercises
   - name: stats
   - name: media
+  - name: nutrition
 
 paths:
   /config:
@@ -1007,6 +1017,302 @@ paths:
         "500": { $ref: "#/components/responses/Internal" }
         "501": { $ref: "#/components/responses/MediaDisabled" }
 
+  /nutrition/entries:
+    get:
+      tags: [nutrition]
+      operationId: listNutritionEntries
+      summary: List nutrition entries
+      description: |
+        Newest date first, chronological within a day. Filter by one `date`
+        or a `from`/`to` range (not both), and/or `q`. With no date filter the
+        latest entries across all dates are listed (for re-using previous meals).
+      parameters:
+        - name: date
+          in: query
+          description: A single local date (`YYYY-MM-DD` or `today`).
+          schema: { type: string }
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - name: q
+          in: query
+          description: Case-insensitive substring of the name.
+          schema: { type: string, maxLength: 200 }
+        - name: limit
+          in: query
+          description: 1-500, default 100.
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200":
+          description: Entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/NutritionEntry" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+    post:
+      tags: [nutrition]
+      operationId: addNutritionEntry
+      summary: Log one consumed portion
+      description: |
+        Only `name` is required. Nutrients are stored exactly as given: a
+        missing value stays missing (never 0) and calories are never derived
+        from macros. With `Idempotency-Key`, a retry returns the original entry
+        (`200`, `replayed: true`); the same key with a different body is a `409`.
+        Without a key, posting twice intentionally logs two portions.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NutritionEntryInput" }
+      responses:
+        "201": { $ref: "#/components/responses/NutritionEntryCreated" }
+        "200": { $ref: "#/components/responses/NutritionEntryResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+
+  /nutrition/entries/{id}:
+    parameters:
+      - $ref: "#/components/parameters/EntryID"
+    get:
+      tags: [nutrition]
+      operationId: getNutritionEntry
+      summary: Get one nutrition entry
+      responses:
+        "200":
+          description: The entry.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NutritionEntry" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+    patch:
+      tags: [nutrition]
+      operationId: updateNutritionEntry
+      summary: Change fields of an entry (merge-patch)
+      parameters:
+        - $ref: "#/components/parameters/IfMatchRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NutritionEntryPatch" }
+          application/merge-patch+json:
+            schema: { $ref: "#/components/schemas/NutritionEntryPatch" }
+      responses:
+        "200":
+          description: The updated entry.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NutritionEntry" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+    delete:
+      tags: [nutrition]
+      operationId: deleteNutritionEntry
+      summary: Delete an entry
+      description: Copies made from it are kept.
+      parameters:
+        - $ref: "#/components/parameters/IfMatchRequired"
+      responses:
+        "204":
+          description: Deleted.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+
+  /nutrition/entries/{id}/copy:
+    parameters:
+      - $ref: "#/components/parameters/EntryID"
+    post:
+      tags: [nutrition]
+      operationId: copyNutritionEntry
+      summary: Log a previous entry again
+      description: |
+        Creates a new, independent entry with the same name and values
+        (`copied_from` points at the source; editing either never changes the
+        other). The body may be omitted; `date` defaults to today.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                date: { type: string, description: Consumption date (`YYYY-MM-DD` or `today`); today or earlier. }
+      responses:
+        "201": { $ref: "#/components/responses/NutritionEntryCreated" }
+        "200": { $ref: "#/components/responses/NutritionEntryResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+
+  /nutrition/days:
+    get:
+      tags: [nutrition]
+      operationId: nutritionDays
+      summary: Daily summaries over a range (calendar / overview)
+      description: One entry per date, including days without entries. `from` defaults to today, `to` to `from`; at most 366 days.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Days, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [days]
+                properties:
+                  days:
+                    type: array
+                    items: { $ref: "#/components/schemas/NutritionDay" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+
+  /nutrition/days/{date}:
+    parameters:
+      - $ref: "#/components/parameters/NutritionDate"
+    get:
+      tags: [nutrition]
+      operationId: nutritionDay
+      summary: One day's entries, totals and targets
+      responses:
+        "200":
+          description: The day.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NutritionDay" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+
+  /nutrition/targets:
+    get:
+      tags: [nutrition]
+      operationId: getNutritionTargets
+      summary: Targets in effect on a date, and every change
+      description: The ETag is the revision of the targets in effect on `date` (`"0"` when none were ever set); send it as If-Match to change targets from that date.
+      parameters:
+        - name: date
+          in: query
+          description: Local date (`YYYY-MM-DD` or `today`); default today.
+          schema: { type: string }
+      responses:
+        "200":
+          description: Targets and history.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [targets, history]
+                properties:
+                  targets: { $ref: "#/components/schemas/NutritionTargets" }
+                  history:
+                    type: array
+                    description: Every change, oldest first.
+                    items: { $ref: "#/components/schemas/NutritionTargets" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+
+  /nutrition/targets/{date}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        description: The date the change takes effect (`YYYY-MM-DD` or `today`; future dates allowed).
+        schema: { type: string }
+    put:
+      tags: [nutrition]
+      operationId: setNutritionTargets
+      summary: Change targets from a date forward
+      description: |
+        Merge-patch against the targets in effect on that date: a number sets
+        a target, `null` removes it, an absent member keeps what was in effect.
+        The change applies from this date until the next change; earlier dates
+        are never affected. `If-Match` must be the revision of the targets in
+        effect on that date (`"0"` when none are set).
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: 'Revision of the targets in effect on the date, e.g. `"3"`; `"0"` when none are set. Missing -> 428, stale -> 412.'
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetsPatch" }
+          application/merge-patch+json:
+            schema: { $ref: "#/components/schemas/TargetsPatch" }
+      responses:
+        "200":
+          description: The targets now in effect from that date.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NutritionTargets" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+    delete:
+      tags: [nutrition]
+      operationId: deleteNutritionTargets
+      summary: Undo the target change made on a date
+      description: The previous change (if any) applies again from that date. `If-Match` is that change's revision.
+      parameters:
+        - $ref: "#/components/parameters/IfMatchRequired"
+      responses:
+        "204":
+          description: Removed.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "501": { $ref: "#/components/responses/NutritionDisabled" }
+
   /stats/summary:
     get:
       tags: [stats]
@@ -1046,6 +1352,18 @@ components:
       schema: { type: string, example: '"3"' }
 
   parameters:
+    EntryID:
+      name: id
+      in: path
+      required: true
+      description: Nutrition entry id.
+      schema: { type: integer, minimum: 1 }
+    NutritionDate:
+      name: date
+      in: path
+      required: true
+      description: Local date `YYYY-MM-DD` in the server timezone, or `today`.
+      schema: { type: string }
     SetID:
       name: id
       in: path
@@ -1197,6 +1515,28 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    NutritionDisabled:
+      description: "`nutrition_disabled`: this server's store does not support nutrition."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NutritionEntryResult:
+      description: The entry and whether it was an idempotent replay.
+      headers:
+        ETag: { $ref: "#/components/headers/ETag" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/NutritionEntryResult" }
+    NutritionEntryCreated:
+      description: Created.
+      headers:
+        ETag: { $ref: "#/components/headers/ETag" }
+        Location:
+          description: URL of the new entry.
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/NutritionEntryResult" }
     Internal:
       description: "`internal`: unexpected server error; details are logged, never returned."
       content:
@@ -1226,6 +1566,7 @@ components:
                 - unsupported_media_type
                 - payload_too_large
                 - media_disabled
+                - nutrition_disabled
             message: { type: string }
             issues:
               type: array
@@ -1801,3 +2142,111 @@ components:
         unscheduled_plans:
           type: array
           items: { $ref: "#/components/schemas/UnscheduledPlan" }
+
+    NutrientValue:
+      type: [number, "null"]
+      minimum: 0
+      description: For the whole portion. `null` = not provided (never treated as 0).
+
+    NutritionEntry:
+      type: object
+      required: [id, date, name, calories_kcal, protein_g, carbs_g, fat_g, copied_from, revision, created_at, updated_at]
+      description: One portion consumed on a local date. Values are for the whole portion.
+      properties:
+        id: { type: integer }
+        date: { type: string, description: Consumption date in the server timezone. }
+        name: { type: string }
+        calories_kcal: { $ref: "#/components/schemas/NutrientValue" }
+        protein_g: { $ref: "#/components/schemas/NutrientValue" }
+        carbs_g: { $ref: "#/components/schemas/NutrientValue" }
+        fat_g: { $ref: "#/components/schemas/NutrientValue" }
+        copied_from: { type: [integer, "null"], description: Source entry of a copy; the copy is independent. }
+        revision: { type: integer }
+        created_at: { type: string }
+        updated_at: { type: string }
+
+    NutritionEntryInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      description: Absent or `null` nutrients are not provided.
+      properties:
+        date: { type: string, description: "`YYYY-MM-DD` or `today` (default); today or earlier." }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        calories_kcal: { type: [number, "null"], minimum: 0, maximum: 20000, description: kcal for the whole portion. }
+        protein_g: { type: [number, "null"], minimum: 0, maximum: 2000, description: grams for the whole portion. }
+        carbs_g: { type: [number, "null"], minimum: 0, maximum: 2000, description: grams for the whole portion. }
+        fat_g: { type: [number, "null"], minimum: 0, maximum: 2000, description: grams for the whole portion. }
+
+    NutritionEntryPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Merge-patch. Absent = unchanged; `null` clears a nutrient back to not provided; `null` on `name` or `date` is rejected.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        date: { type: string }
+        calories_kcal: { type: [number, "null"], minimum: 0, maximum: 20000 }
+        protein_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        carbs_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        fat_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+
+    NutritionEntryResult:
+      type: object
+      required: [entry, replayed]
+      properties:
+        entry: { $ref: "#/components/schemas/NutritionEntry" }
+        replayed: { type: boolean, description: True when an earlier request with the same Idempotency-Key is returned; nothing new was written. }
+
+    TargetsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Number = set the daily target, `null` = remove it, absent = keep what is in effect on the date.
+      properties:
+        calories_kcal: { type: [number, "null"], minimum: 0, maximum: 20000 }
+        protein_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        carbs_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        fat_g: { type: [number, "null"], minimum: 0, maximum: 2000 }
+
+    NutritionTargets:
+      type: object
+      required: [calories_kcal, protein_g, carbs_g, fat_g, revision]
+      description: |
+        Daily targets in effect on a date. A change applies from
+        `effective_from` until the next change and never alters earlier dates.
+      properties:
+        effective_from: { type: string, description: Date of the change that applies; omitted when no target was ever set. }
+        calories_kcal: { type: [number, "null"], description: kcal per day; null = no target. }
+        protein_g: { type: [number, "null"], description: g per day; null = no target. }
+        carbs_g: { type: [number, "null"], description: g per day; null = no target. }
+        fat_g: { type: [number, "null"], description: g per day; null = no target. }
+        revision: { type: integer, description: Identifies the change; 0 when none. The If-Match for the next change. }
+
+    NutrientSummary:
+      type: object
+      required: [consumed, entries_missing_value, target, remaining, over]
+      properties:
+        consumed: { type: number, description: Sum over the entries that provided this value. }
+        entries_missing_value: { type: integer, description: Entries without this value; when > 0 the total may be incomplete. }
+        target: { type: [number, "null"], description: null = no target. }
+        remaining: { type: [number, "null"], description: "target - consumed when positive, else 0; null without a target." }
+        over: { type: [number, "null"], description: "consumed - target when positive, else 0; null without a target." }
+
+    NutritionDay:
+      type: object
+      required: [date, today, entry_count, calories_kcal, protein_g, carbs_g, fat_g, targets, entries]
+      description: Computed on read from the stored entries.
+      properties:
+        date: { type: string }
+        today: { type: boolean }
+        entry_count: { type: integer }
+        calories_kcal: { $ref: "#/components/schemas/NutrientSummary" }
+        protein_g: { $ref: "#/components/schemas/NutrientSummary" }
+        carbs_g: { $ref: "#/components/schemas/NutrientSummary" }
+        fat_g: { $ref: "#/components/schemas/NutrientSummary" }
+        targets: { $ref: "#/components/schemas/NutritionTargets" }
+        entries:
+          type: array
+          description: Chronological.
+          items: { $ref: "#/components/schemas/NutritionEntry" }

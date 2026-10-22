@@ -48,6 +48,14 @@ explicit values and rejects anything invalid.
 | Documented HTTP API with OpenAPI | Implemented |
 | Plan scheduling: fixed weekdays or a weekly frequency, stored on the plan | Implemented — optional `schedule` on a plan; a schedule view shows what is due and what was done. Rotations (A/B/C) are expressed with per-plan days or frequencies |
 
+## Nutrition
+
+A simple food log ([nutrition.md](nutrition.md)): one entry per portion eaten
+with whole-portion kcal/protein/carbs/fat (missing ≠ 0), daily summaries computed
+from entries, optional effective-dated targets, copy of previous meals, MCP
+tools for the assistant and a basic UI. No food database, recognition, barcode
+scanning or templates.
+
 ## Non-goals (this phase)
 
 An in-app chatbot or LLM calls, multi-user accounts or RBAC,

@@ -3,7 +3,7 @@
 <!-- GENERATED from the registered tools by internal/mcpsrv/docs_test.go. Do not edit by hand; run:
      go test ./internal/mcpsrv -run ToolReference -update-docs -->
 
-This server registers 52 tools. Descriptions below are exactly what the model receives.
+This server registers 61 tools. Descriptions below are exactly what the model receives.
 
 Worked examples with real calls and results: [mcp-examples.md](mcp-examples.md). Connection and plugin setup: [plugin-setup.md](plugin-setup.md).
 
@@ -19,10 +19,13 @@ Conventions that apply to every tool:
 | Tool | Kind |
 |---|---|
 | [`add_exercise_alias`](#add_exercise_alias) | write (idempotent) |
+| [`add_nutrition_entry`](#add_nutrition_entry) | write |
 | [`add_session_exercise`](#add_session_exercise) | destructive write |
 | [`add_set`](#add_set) | write |
 | [`adjust_session_exercise`](#adjust_session_exercise) | destructive write |
+| [`copy_nutrition_entry`](#copy_nutrition_entry) | write |
 | [`create_plan`](#create_plan) | write |
+| [`delete_nutrition_entry`](#delete_nutrition_entry) | destructive write |
 | [`delete_plan`](#delete_plan) | destructive write |
 | [`delete_session`](#delete_session) | destructive write |
 | [`delete_set`](#delete_set) | destructive write |
@@ -31,6 +34,9 @@ Conventions that apply to every tool:
 | [`exercise_stats`](#exercise_stats) | read-only |
 | [`export_plan`](#export_plan) | read-only |
 | [`get_exercise_guide`](#get_exercise_guide) | read-only |
+| [`get_nutrition_day`](#get_nutrition_day) | read-only |
+| [`get_nutrition_entry`](#get_nutrition_entry) | read-only |
+| [`get_nutrition_targets`](#get_nutrition_targets) | read-only |
 | [`get_plan`](#get_plan) | read-only |
 | [`get_schedule`](#get_schedule) | read-only |
 | [`get_session`](#get_session) | read-only |
@@ -40,6 +46,7 @@ Conventions that apply to every tool:
 | [`list_exercise_groups`](#list_exercise_groups) | read-only |
 | [`list_exercise_notes`](#list_exercise_notes) | read-only |
 | [`list_exercises`](#list_exercises) | read-only |
+| [`list_nutrition_entries`](#list_nutrition_entries) | read-only |
 | [`list_plans`](#list_plans) | read-only |
 | [`list_sessions`](#list_sessions) | read-only |
 | [`list_set_videos`](#list_set_videos) | read-only |
@@ -58,6 +65,7 @@ Conventions that apply to every tool:
 | [`set_exercise_group`](#set_exercise_group) | destructive write |
 | [`set_exercise_instructions`](#set_exercise_instructions) | destructive write |
 | [`set_exercise_note`](#set_exercise_note) | destructive write |
+| [`set_nutrition_targets`](#set_nutrition_targets) | destructive write |
 | [`set_plan_exercise`](#set_plan_exercise) | destructive write |
 | [`set_plan_schedule`](#set_plan_schedule) | destructive write |
 | [`set_volume_landmarks`](#set_volume_landmarks) | destructive write |
@@ -65,6 +73,7 @@ Conventions that apply to every tool:
 | [`suggest_load`](#suggest_load) | read-only |
 | [`swap_session_exercise`](#swap_session_exercise) | destructive write |
 | [`training_summary`](#training_summary) | read-only |
+| [`update_nutrition_entry`](#update_nutrition_entry) | destructive write |
 | [`update_plan`](#update_plan) | destructive write |
 | [`update_set`](#update_set) | destructive write |
 | [`volume_by_muscle`](#volume_by_muscle) | read-only |
@@ -82,6 +91,22 @@ Make another name resolve to an existing exercise. An alias that is already an e
 | `alias` | string | yes | Other name that should resolve to this exercise, e.g. 'bp' for 'bench press'. |
 | `exercise` | string | no | Current canonical name or alias of the exercise. |
 | `exercise_id` | integer | no | Exact id of the exercise. Give exercise_id or exercise. |
+
+## add_nutrition_entry
+
+**Add nutrition entry** — write
+
+Log one food or meal eaten. Returns the persisted entry (id, date, name, values, revision, created_at, updated_at) and replayed. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g. Omit a value that is unknown: omitted means 'not recorded' and is never treated as 0; send 0 only for an explicit zero. Calories are stored exactly as given and never recomputed from macros. Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today. Food cannot be logged for a future date. Nutrition never creates or changes a workout. idempotency_key (optional, at most 128 characters, global to this single user): retrying with the same key and the same payload replays the stored entry (replayed=true) without writing again; the same key with a different payload is a conflict. A meal eaten twice on purpose needs no key or a new key.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `calories_kcal` | number | no | Energy of the whole portion in kcal, 0-20000. Omit if unknown. |
+| `carbs_g` | number | no | Carbohydrate of the whole portion in grams, 0-2000. Omit if unknown. |
+| `date` | string | no | Local date YYYY-MM-DD it was eaten. Omit for today. |
+| `fat_g` | number | no | Fat of the whole portion in grams, 0-2000. Omit if unknown. |
+| `idempotency_key` | string | no | Optional retry key. Same key + same payload replays; different payload is a conflict. |
+| `name` | string | yes | What was eaten, e.g. 'chicken and rice, large plate'. 1-200 characters. |
+| `protein_g` | number | no | Protein of the whole portion in grams, 0-2000. Omit if unknown. |
 
 ## add_session_exercise
 
@@ -141,6 +166,18 @@ Change part of one exercise's prescription in a workout: target_sets, rep range,
 | `target_sets` | integer | no | New planned set count, 1-20. Omit to leave unchanged. |
 | `target_weight_kg` | number | no | New target load in kilograms, 0-2000. Omit to leave unchanged. |
 
+## copy_nutrition_entry
+
+**Copy nutrition entry** — write
+
+Log an earlier meal again: creates a NEW, independent entry with the same name and values on date (today when omitted), with copied_from set. Editing or deleting the copy never changes the original, and vice versa. Find the original first with list_nutrition_entries or get_nutrition_day. Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today. Food cannot be logged for a future date. Nutrition never creates or changes a workout. idempotency_key (optional, at most 128 characters, global to this single user): retrying with the same key and the same payload replays the stored entry (replayed=true) without writing again; the same key with a different payload is a conflict. A meal eaten twice on purpose needs no key or a new key.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `date` | string | no | Local date YYYY-MM-DD for the copy. Omit for today. |
+| `entry_id` | integer | yes | Id of the entry to copy. |
+| `idempotency_key` | string | no | Optional retry key. Same key + same payload replays; different payload is a conflict. |
+
 ## create_plan
 
 **Create plan** — write
@@ -153,6 +190,17 @@ Create a reusable workout plan: an ordered list of exercises, each with target_s
 | `name` | string | yes | Name of the plan, e.g. 'Upper A'. |
 | `notes` | string | no | Optional free-text notes about the plan. |
 | `schedule` | object | no | Optional schedule: {type:'weekdays', days:['mon','thu']} or {type:'times_per_week', times_per_week:3}. Omit for an unscheduled plan. |
+
+## delete_nutrition_entry
+
+**Delete nutrition entry** — destructive write
+
+Permanently delete one nutrition entry by id. Irreversible: confirm with the user first, naming the entry. expected_revision (optional) makes the write fail with a conflict if the target changed since you read it; on conflict re-read and retry.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `entry_id` | integer | yes | Id of the entry to delete. |
+| `expected_revision` | integer | no | The entry's revision from your last read; rejected with a conflict if it changed since. |
 
 ## delete_plan
 
@@ -238,6 +286,38 @@ Read how to perform an exercise: the user's stored written instructions (empty s
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `exercise` | string | yes | Exercise name, alias or numeric id. |
+
+## get_nutrition_day
+
+**Get nutrition day** — read-only
+
+Read one local day of nutrition (or several with from/to): the entries in logged order, consumed totals per nutrient, entries_missing_value per nutrient (entries with that value not recorded, so a total may be an undercount), the targets in effect that day with their revision, and remaining/over per nutrient when a target exists. Always returns today and the timezone, so 'today'/'yesterday' resolve correctly. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g. Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today. Food cannot be logged for a future date. Nutrition never creates or changes a workout.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `date` | string | no | Local date YYYY-MM-DD. Omit for today. Do not combine with from/to. |
+| `from` | string | no | First local date of a multi-day read (returns days[] instead of day). At most 366 days. |
+| `to` | string | no | Last local date of a multi-day read; defaults to from. |
+
+## get_nutrition_entry
+
+**Get nutrition entry** — read-only
+
+Read one nutrition entry by id, with its revision. Values are null when not recorded. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `entry_id` | integer | yes | Id of the nutrition entry. |
+
+## get_nutrition_targets
+
+**Get nutrition targets** — read-only
+
+Read the daily nutrition targets in effect on a local date (default today) with their revision (0 when none were ever set), plus the full history of target changes. A null target means none is set. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `date` | string | no | Local date YYYY-MM-DD. Omit for today. |
 
 ## get_plan
 
@@ -325,6 +405,20 @@ _No parameters._
 List every known exercise with its stable id, canonical name, aliases, muscle group and number of logged sets. Use it to match what the user says to an existing exercise before logging, so history is not split across near-duplicate names.
 
 _No parameters._
+
+## list_nutrition_entries
+
+**List nutrition entries** — read-only
+
+Find nutrition entries, newest first. With no filters returns the latest entries across all dates - use it (optionally with query) to find a previous meal before copy_nutrition_entry. Filter by one date, or by an inclusive from/to range, and/or by query text in the name. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g. Dates are local calendar dates YYYY-MM-DD in the configured timezone (default Asia/Jerusalem); omit date for today. Food cannot be logged for a future date. Nutrition never creates or changes a workout.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `date` | string | no | Only entries of this local date YYYY-MM-DD. Do not combine with from/to. |
+| `from` | string | no | Inclusive earliest local date YYYY-MM-DD. |
+| `limit` | integer | no | Maximum entries; defaults to 100, at most 500. |
+| `query` | string | no | Case-insensitive text to match in the entry name, e.g. 'oat'. |
+| `to` | string | no | Inclusive latest local date YYYY-MM-DD. |
 
 ## list_plans
 
@@ -537,6 +631,22 @@ Store a persistent setup reminder for an exercise, such as seat height or grip w
 | `exercise` | string | yes | Exercise name or alias. |
 | `note` | string | yes | Setup reminder, e.g. 'seat at 4, wide grip'. Empty string removes it. |
 
+## set_nutrition_targets
+
+**Set nutrition targets** — destructive write
+
+Set daily nutrition targets from effective_from (default today) until the next change. Earlier dates never change. Omitted values keep what is in effect on effective_from; clear removes a target. Targets are only ever what the user explicitly asks for: never invent, suggest-and-save or recommend targets. Units: calories_kcal in kcal per day; protein_g, carbs_g, fat_g in grams per day. Dates are local YYYY-MM-DD in the configured timezone (default Asia/Jerusalem). Never creates a workout. expected_revision (optional) makes the write fail with a conflict if the target changed since you read it; on conflict re-read and retry.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `calories_kcal` | number | no | Daily energy target in kcal. Omit to keep the value in effect on effective_from. |
+| `carbs_g` | number | no | Daily carbohydrate target in grams. Omit to keep. |
+| `clear` | array of string | no | Targets to remove from effective_from on: any of calories_kcal, protein_g, carbs_g, fat_g. |
+| `effective_from` | string | no | First local date YYYY-MM-DD the targets apply to; omit for today. They apply until the next change; earlier dates never change. |
+| `expected_revision` | integer | no | targets.revision from get_nutrition_targets or get_nutrition_day (0 when no targets were ever set); rejected with a conflict if targets changed since. |
+| `fat_g` | number | no | Daily fat target in grams. Omit to keep. |
+| `protein_g` | number | no | Daily protein target in grams. Omit to keep. |
+
 ## set_plan_exercise
 
 **Set plan exercise** — destructive write
@@ -623,6 +733,24 @@ Overview of completed working sets over a local date range (default: the 28 days
 |---|---|---|---|
 | `from` | string | no | Inclusive earliest local date YYYY-MM-DD. |
 | `to` | string | no | Inclusive latest local date YYYY-MM-DD. |
+
+## update_nutrition_entry
+
+**Update nutrition entry** — destructive write
+
+Correct one nutrition entry by id (read it first). Only the fields given change; omitted fields stay as stored. Use clear to turn a value back into 'not recorded'. Returns the persisted entry with its new revision. Units: calories_kcal in kilocalories (kcal); protein_g, carbs_g and fat_g in grams. Values describe the WHOLE portion eaten, not per 100 g. Omit a value that is unknown: omitted means 'not recorded' and is never treated as 0; send 0 only for an explicit zero. Calories are stored exactly as given and never recomputed from macros. expected_revision (optional) makes the write fail with a conflict if the target changed since you read it; on conflict re-read and retry.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `calories_kcal` | number | no | Energy of the whole portion in kcal, 0-20000. Omit if unknown. |
+| `carbs_g` | number | no | Carbohydrate of the whole portion in grams, 0-2000. Omit if unknown. |
+| `clear` | array of string | no | Values to reset to 'not recorded': any of calories_kcal, protein_g, carbs_g, fat_g. |
+| `date` | string | no | Move the entry to this local date YYYY-MM-DD (not in the future). |
+| `entry_id` | integer | yes | Id of the entry to change (from get_nutrition_day or list_nutrition_entries). |
+| `expected_revision` | integer | no | The entry's revision from your last read; rejected with a conflict if it changed since. |
+| `fat_g` | number | no | Fat of the whole portion in grams, 0-2000. Omit if unknown. |
+| `name` | string | no | New name. |
+| `protein_g` | number | no | Protein of the whole portion in grams, 0-2000. Omit if unknown. |
 
 ## update_plan
 

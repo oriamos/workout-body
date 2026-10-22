@@ -11,6 +11,10 @@ Prescriptions use `target_sets` for the planned set count; only plan documents
 (`import_plan`/`replace_plan`/`export_plan`) use `sets`. Plan schedules
 ("Mondays and Thursdays", "three times a week") are read with `get_schedule`
 and set with `set_plan_schedule`; a schedule never creates a workout.
+The `nutrition-logging` skill covers food entries (calories in kcal, macros in
+grams for the whole portion): explicit values, clearly labelled estimates,
+repeating a meal by finding it and calling `copy_nutrition_entry`, corrections
+by entry id with `expected_revision`, and targets set only when the user asks.
 
 Verification status is in [`../README.md`](../README.md). In short: the MCP
 server's tools are tested with the Go MCP SDK client; installing this plugin
@@ -23,7 +27,8 @@ in Claude Code has **not** been verified.
 | `.claude-plugin/plugin.json` | Plugin manifest. |
 | `.mcp.json` | MCP server entry: Streamable HTTP with a static bearer token. |
 | `skills/workout-logging/SKILL.md` | Assistant instructions, loaded as a skill. |
-| `assistant-instructions.md` | The same instructions as plain text, for clients without skills. |
+| `skills/nutrition-logging/SKILL.md` | Food/macro logging instructions, loaded as a skill. |
+| `assistant-instructions.md` | Both skills as plain text, for clients without skills. |
 
 ## HTTP setup (default)
 

@@ -22,7 +22,7 @@ data and concurrency behaviour.
 
 | Package | Role |
 |---|---|
-| `internal/training` | Domain model, validation, service, plan JSON, analytics. Pure Go. |
+| `internal/training` | Domain model, validation, service, plan JSON, analytics, nutrition. Pure Go. |
 | `internal/sqlitestore` | SQLite adapter, embedded migrations, transactions. |
 | `internal/mcpsrv` | MCP tools (Go MCP SDK), Streamable HTTP handler and stdio runner. |
 | `internal/apisrv` | `/api/v1` JSON API and embedded OpenAPI spec. |

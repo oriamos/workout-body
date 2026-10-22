@@ -28,6 +28,8 @@ type Service struct {
 
 	// Nutrition tracking, available when the store implements NutritionStore.
 	nut NutritionStore
+	// Body-weight tracking, available when the store implements WeightStore.
+	wt WeightStore
 
 	// Optional video storage, enabled with WithMedia.
 	media    MediaStore
@@ -39,6 +41,9 @@ func NewService(store Store, clock Clock) *Service {
 	s := &Service{store: store, clock: clock}
 	if ns, ok := store.(NutritionStore); ok {
 		s.nut = ns
+	}
+	if ws, ok := store.(WeightStore); ok {
+		s.wt = ws
 	}
 	return s
 }

@@ -55,7 +55,7 @@ func TestRunHandlesInterruptAndTerminateSignalsAtCompositionSeam(t *testing.T) {
 				if err != nil {
 					t.Fatalf("signal shutdown: %v", err)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(5 * time.Second): // generous: startup runs every migration, slow under -race with the full suite in parallel
 				t.Fatal("signal did not stop server")
 			}
 		})

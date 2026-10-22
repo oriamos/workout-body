@@ -3,7 +3,7 @@
 This directory holds client-side packaging for the workout-body MCP server.
 
 - [`workout-body/`](workout-body/) - Claude Code plugin: MCP server entry,
-  `workout-logging` skill, and the same instructions as plain text
+  `workout-logging` and `nutrition-logging` skills, and the same instructions as plain text
   (`workout-body/assistant-instructions.md`) for clients without skills.
 - [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) - a
   local marketplace listing that plugin, so it can be added from a checkout.
@@ -38,7 +38,12 @@ against the real service on a temporary SQLite database:
   to the API server and are not exercised by these tests;
 - plan schedules: `create_plan`/`import_plan` (incl. dry run)/`export_plan`
   carrying a schedule, `set_plan_schedule` set/clear/stale-revision/invalid
-  days, and `get_schedule` statuses, weekly tallies and default week.
+  days, and `get_schedule` statuses, weekly tallies and default week;
+- nutrition: adding meals and day totals, zero vs missing values, partial
+  update and clear, copy and its independence, retry replay vs intentional
+  duplicate, stale-revision conflicts for entries and targets, target changes
+  that leave earlier dates intact, invalid values with field paths, future
+  dates rejected, and no workout created by nutrition.
 
 ### Checked against the documentation, but not run
 
@@ -62,7 +67,7 @@ Run `claude plugin validate ./plugin` and `claude plugin validate
 ### Not verified (never run)
 
 - **Installing the plugin in Claude Code** and whether the `workout-logging`
-  skill triggers at the right moments.
+  and `nutrition-logging` skills trigger at the right moments.
 - **Claude.ai and Claude Desktop custom connectors.** Anthropic's connector
   documentation describes custom *request headers* for fixed credentials such as
   a bearer token, so this server's static token is a documented fit. But the

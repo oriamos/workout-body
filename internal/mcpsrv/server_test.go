@@ -593,23 +593,25 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 		"set_volume_landmarks", "list_volume_landmarks",
 		"get_exercise_guide", "set_exercise_instructions", "list_set_videos", "delete_video",
 		"set_plan_schedule", "get_schedule",
+		"add_nutrition_entry", "get_nutrition_entry", "list_nutrition_entries", "update_nutrition_entry",
+		"delete_nutrition_entry", "copy_nutrition_entry", "get_nutrition_day", "get_nutrition_targets", "set_nutrition_targets",
 	}
 	for _, n := range required {
 		if byName[n] == nil {
 			t.Errorf("tool %s is not registered", n)
 		}
 	}
-	for _, n := range []string{"get_workout", "get_session", "list_sessions", "get_plan", "export_plan", "list_exercises", "exercise_stats", "training_summary", "exercise_history", "get_set", "get_exercise_guide", "list_set_videos", "get_schedule"} {
+	for _, n := range []string{"get_workout", "get_session", "list_sessions", "get_plan", "export_plan", "list_exercises", "exercise_stats", "training_summary", "exercise_history", "get_set", "get_exercise_guide", "list_set_videos", "get_schedule", "get_nutrition_entry", "list_nutrition_entries", "get_nutrition_day", "get_nutrition_targets"} {
 		if tool := byName[n]; tool != nil && !tool.Annotations.ReadOnlyHint {
 			t.Errorf("%s should be read-only", n)
 		}
 	}
-	for _, n := range []string{"delete_set", "delete_session", "delete_plan", "update_set", "replace_plan", "rename_exercise", "remove_exercise_alias", "delete_video", "set_plan_schedule"} {
+	for _, n := range []string{"delete_set", "delete_session", "delete_plan", "update_set", "replace_plan", "rename_exercise", "remove_exercise_alias", "delete_video", "set_plan_schedule", "update_nutrition_entry", "delete_nutrition_entry", "set_nutrition_targets"} {
 		if tool := byName[n]; tool != nil && (tool.Annotations.ReadOnlyHint || !*tool.Annotations.DestructiveHint) {
 			t.Errorf("%s should be destructive", n)
 		}
 	}
-	for _, n := range []string{"log_sets", "log_set", "add_set"} {
+	for _, n := range []string{"log_sets", "log_set", "add_set", "add_nutrition_entry", "copy_nutrition_entry"} {
 		if tool := byName[n]; tool != nil && (*tool.Annotations.DestructiveHint || tool.Annotations.IdempotentHint || tool.Annotations.ReadOnlyHint) {
 			t.Errorf("%s should be additive and not idempotent without a key", n)
 		}
@@ -630,6 +632,12 @@ func TestToolsListAnnotationsAndContract(t *testing.T) {
 	mustContain(t, byName["set_exercise_instructions"].Description, "never invent")
 	mustContain(t, byName["delete_video"].Description, "confirm")
 	mustContain(t, logSets, "target_sets")
+	for _, n := range []string{"add_nutrition_entry", "copy_nutrition_entry"} {
+		mustContain(t, byName[n].Description, "configured timezone", "Asia/Jerusalem", "never creates", "same key and the same payload replays", "conflict", "no key or a new key")
+	}
+	mustContain(t, byName["add_nutrition_entry"].Description, "kcal", "grams", "WHOLE portion", "never treated as 0", "never recomputed")
+	mustContain(t, byName["set_nutrition_targets"].Description, "never invent", "Earlier dates never change", "kcal", "grams")
+	mustContain(t, byName["delete_nutrition_entry"].Description, "confirm")
 	if !byName["set_plan_schedule"].Annotations.IdempotentHint {
 		t.Error("set_plan_schedule should be idempotent")
 	}

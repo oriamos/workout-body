@@ -166,6 +166,13 @@ in [engine.md](engine.md#plan-schedules)) — plus `weekly_targets[]` for
 frequency plans (`target`, `completed`, `remaining`, `dates`) and
 `unscheduled_plans[]`. It never creates a workout.
 
+## Nutrition
+
+`/nutrition/entries`, `/nutrition/days` and `/nutrition/targets` (entries with
+idempotent create and copy, daily summaries against effective-dated targets) are
+documented in [nutrition.md](nutrition.md#http-api) and in the OpenAPI spec.
+They follow the same auth, date, `If-Match` and error rules as this page.
+
 ## Not provided
 
 No pagination cursors (history is bounded by `limit`), no webhooks, no bulk
