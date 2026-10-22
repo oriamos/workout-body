@@ -61,7 +61,8 @@ can use the token. Do not add `--host` in api mode on an untrusted network.
 | `npm run dev:mock` | in-memory prototype (`VITE_DATA_SOURCE=mock`) |
 | `npm run build` | `tsc --noEmit && vite build` |
 | `npm run seed:api` | load the synthetic seed into a running engine |
-| `npm run test:unit` | unit tests of the engine to UI mapping (`scripts/unit-api-mapping.mjs`) |
+| `npm run test:unit` | unit tests: engine to UI mapping and nutrition helpers (`scripts/unit-*.mjs`) |
+| `npm run test:nutrition` | nutrition end-to-end against a real engine, same setup (`scripts/nutrition-flows.mjs`) |
 | `npm run test:api` | end-to-end against a real engine: starts `go run ./cmd/training-mcp` on a temp DB and Vite itself, drives Chromium (`scripts/api-flows.mjs`) |
 | `npm run test:mock` | prototype interaction checks; needs `npm run dev:mock` running on :5173 (`scripts/flows.mjs`) |
 
@@ -106,13 +107,42 @@ exercise's first engine video, else the labelled placeholder clip.
   failed with a Hebrew explanation; nothing is overwritten silently. "Retry" then deliberately
   re-applies your value on top of the fresh revision.
 
+## Nutrition (`#/nutrition`)
+
+A separate module in `src/nutrition/` with its own `NutritionRepository` (`repository.ts`): the API
+implementation (`apiRepository.ts`, `/api/v1/nutrition/...` through the same proxy) or a deterministic
+in-memory mock (`mockRepository.ts`) under `VITE_DATA_SOURCE=mock`. Pure helpers (`logic.ts`) are
+unit-tested by `scripts/unit-nutrition.mjs`.
+
+* **Day view** (`#/nutrition/YYYY-MM-DD`; default = the engine's today): previous/next day, a month
+  calendar (days with meals marked), a "היום" shortcut and a "לא היום" badge. Calories, protein, carbs
+  and fat are each shown as consumed / target with a bar and "נותרו" / "חריגה של". Without a target
+  it says "אין יעד" (nothing is invented). Entries without a value add a quiet "חסר ב־N ארוחות". A
+  total where every entry lacks the value shows "—", never 0. Totals come from the server (`GET
+  /nutrition/days/{date}`).
+* **Add/edit** (Sheet): name plus four optional numbers. Empty means "not provided" and is omitted
+  (on edit, cleared with `null`). Inline validation (number, not negative, ≤ 20,000 kcal, ≤ 2,000 g).
+  Typed values are kept when a save fails. New entries send an `Idempotency-Key`, reused when the same
+  values are retried. Edits are merge-patches with `If-Match`. Delete asks for confirmation. Food
+  cannot be logged for a future day (the engine rejects it).
+* **Targets** (Sheet): shows the targets in effect on the selected day and their `effective_from`,
+  then changes them from that day forward (`PUT /nutrition/targets/{date}`, `If-Match` = revision in
+  effect, `"0"` when none). Earlier days keep their targets. An empty field removes a target.
+* **Browse** (Sheet): search by name, from/to dates, details, and copy to today or another date
+  (`POST /nutrition/entries/{id}/copy` with an idempotency key).
+* **Changes made elsewhere**: the visible day is polled every 5 s while the tab is visible. Open forms
+  keep their own values. A `412` keeps your typed values, shows the server's current values, and
+  makes another save an explicit overwrite.
+
+Nutrition data lives on the engine only; nothing nutrition-related is kept in localStorage.
+
 ## Limitations
 
 * **Start time is not stored by the engine**: it is kept in localStorage on the device that started
   the workout; elsewhere the summary shows "—".
 * **Unplanned exercises without a completed set, and notes on exercises without a prescription,
   stay local** to this browser until (for exercises) the first set is completed.
-* **Polling, not push**: remote changes appear within ~5 s, and only for today's workout; other
+* **Polling, not push**: remote changes appear within ~5 s, only for today's workout (and the nutrition day on screen); other
   days refresh on reload. Changes to an existing prescription's targets made elsewhere also appear
   only after reload.
 * Set videos are loaded for today's workout only ("הסרטונים שלי" shows today's), one video per set.

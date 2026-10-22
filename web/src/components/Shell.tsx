@@ -12,6 +12,7 @@ const TABS: { tab: Tab; label: string; icon: IconName; route: Parameters<typeof 
   { tab: 'plans', label: 'תוכניות', icon: 'plans', route: { name: 'plans' } },
   { tab: 'exercises', label: 'תרגילים', icon: 'list', route: { name: 'exercises' } },
   { tab: 'history', label: 'היסטוריה', icon: 'history', route: { name: 'history' } },
+  { tab: 'nutrition', label: 'תזונה', icon: 'nutrition', route: { name: 'nutrition' } },
 ];
 
 const Ctx = createContext<{ openSettings(): void; openDemo(): void }>({ openSettings() {}, openDemo() {} });

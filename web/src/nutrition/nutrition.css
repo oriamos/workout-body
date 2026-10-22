@@ -1,0 +1,54 @@
+/* Nutrition module. Uses the app's tokens and existing patterns (glass-panel, meter, numfield, cal). */
+.nut-grid { display: grid; gap: 14px; align-items: start; padding-bottom: 16px; }
+@media (min-width: 900px) {
+  .nut-grid { grid-template-columns: 340px minmax(0, 1fr); gap: 24px; }
+}
+.nut-aside { display: grid; gap: 10px; }
+.nut-summary { display: grid; gap: 16px; }
+.nut-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.nut-label { font-size: 15px; }
+.nut-amount { color: var(--text-2); font-size: 13.5px; white-space: nowrap; }
+.nut-consumed { font-size: 19px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+.nut-meter { margin-top: 8px; }
+.nut-meter.over span { background: var(--warn); box-shadow: none; }
+.nut-status { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 13px; }
+.nut-st-muted { color: var(--text-3); }
+.nut-st-ok { color: var(--accent-text); font-weight: 600; }
+.nut-st-over { color: var(--warn); font-weight: 600; }
+.nut-miss { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); }
+
+.nut-entries-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.nut-list { display: grid; }
+.nut-entry { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: start; border-radius: 8px; }
+.nut-entry:hover { background: var(--s2); }
+.nut-list li:last-child .nut-entry { border-bottom: 0; }
+.nut-entry-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.nut-entry-vals { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-size: 13.5px; white-space: nowrap; flex: none; }
+.nut-entry-vals small { color: var(--text-3); }
+.nut-not-today { margin-inline-start: 2px; }
+.nut-daybar { display: flex; align-items: center; gap: 4px; margin: 0 0 12px; }
+.nut-daybar-date { display: inline-flex; align-items: center; gap: 8px; flex: 1; justify-content: center; min-height: var(--tap); padding: 0 12px; border-radius: var(--r-md); background: var(--s2); border: 1px solid var(--line); font-weight: 600; }
+.nut-daybar-date:hover { background: var(--s1); }
+.nut-daybar-date .icon { color: var(--text-3); }
+@media (min-width: 900px) { .nut-daybar { max-width: 460px; } }
+
+.nut-form { gap: 14px; }
+.nut-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.nut-name input { text-align: start; padding-inline: 12px; font-weight: 600; }
+.nut-date-note { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: var(--r-md); background: var(--warn-soft); color: var(--text); font-size: 14px; }
+.nut-date-note .icon { color: var(--warn); flex: none; }
+.nut-form-msg { align-items: flex-start; }
+.nut-del { margin-inline-end: auto; }
+
+.nut-targets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+.nut-targets div { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.nut-targets dt { color: var(--text-2); font-size: 13.5px; }
+.nut-targets dd { font-weight: 700; }
+.nut-targets dd small { font-weight: 500; color: var(--text-3); }
+
+.nut-browse { display: grid; gap: 10px; }
+.nut-range { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.nut-range label { display: grid; gap: 4px; font-size: 13px; color: var(--text-2); font-weight: 600; }
+.nut-range input, .nut-copy-date input { height: 40px; border-radius: 10px; background: var(--s2); border: 1px solid var(--line-2); padding: 0 10px; color: var(--text); }
+.nut-detail { display: grid; gap: 10px; padding: 8px 6px 14px; }
+.nut-copy { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

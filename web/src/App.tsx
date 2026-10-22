@@ -9,6 +9,7 @@ import { ExercisesScreen } from './screens/ExercisesScreen';
 import { ExerciseScreen } from './screens/ExerciseScreen';
 import { ProgressScreen } from './screens/ProgressScreen';
 import { LoadError, TodayLoading, TodayScreen } from './screens/TodayScreen';
+import { NutritionScreen } from './nutrition/NutritionScreen';
 
 export default function App() {
   const { state } = useStore();
@@ -28,6 +29,7 @@ export default function App() {
       case 'progress': screen = <ProgressScreen />; break;
       case 'exercises': screen = <ExercisesScreen />; break;
       case 'exercise': screen = <ExerciseScreen id={route.id} />; break;
+      case 'nutrition': screen = <NutritionScreen date={route.date} />; break;
       default: screen = <TodayScreen />;
     }
   return <AppShell>{screen}</AppShell>;
