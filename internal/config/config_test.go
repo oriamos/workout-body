@@ -48,3 +48,29 @@ func TestLoadNormalizesWebBasePath(t *testing.T) {
 		})
 	}
 }
+
+func TestMCPURLKeyValidation(t *testing.T) {
+	t.Setenv("MCP_BEARER_TOKEN", "secret-token-secret-token-secret-token")
+	t.Setenv("MCP_AUTH_DISABLED", "")
+	for name, tc := range map[string]struct {
+		key string
+		ok  bool
+	}{
+		"unset":         {"", true},
+		"valid":         {"0123456789abcdef0123456789abcdef", true},
+		"too short":     {"short", false},
+		"same as token": {"secret-token-secret-token-secret-token", false},
+		"bad chars":     {"0123456789abcdef0123456789abcde&", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("MCP_URL_KEY", tc.key)
+			cfg, err := Load("")
+			if (err == nil) != tc.ok {
+				t.Fatalf("err = %v, want ok=%v", err, tc.ok)
+			}
+			if err == nil && cfg.MCPURLKey != tc.key {
+				t.Fatalf("MCPURLKey = %q", cfg.MCPURLKey)
+			}
+		})
+	}
+}

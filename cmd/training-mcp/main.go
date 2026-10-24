@@ -158,6 +158,10 @@ func runWithContext(ctx context.Context, args []string) error {
 		logger.Printf("web UI not built into this binary (run scripts/build-ui.sh before go build); / shows how")
 	}
 	handler := httpsrv.RoutesWithUI(mcpServer.Handler(), apisrv.New(service).Handler(), ui, cfg.AuthDisabled, cfg.Token, web)
+	if cfg.MCPURLKey != "" && !cfg.AuthDisabled {
+		handler = httpsrv.MCPURLKey(cfg.MCPURLKey, cfg.Token, handler)
+		logger.Printf("MCP URL key enabled: /mcp also accepts ?%s=<MCP_URL_KEY>", httpsrv.URLKeyParam)
+	}
 	httpServer := &http.Server{Addr: cfg.Addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
 	logger.Printf("listening on %s (timezone %s, database %s)", cfg.Addr, cfg.Timezone, cfg.DBPath)
 	errCh := make(chan error, 1)

@@ -18,6 +18,9 @@ const DefaultTimezone = "Asia/Jerusalem"
 type Config struct {
 	Addr, DBPath, Token string
 	AuthDisabled        bool
+	// MCPURLKey, when set, also lets /mcp (and only /mcp) authenticate with
+	// ?key=<value>, for MCP clients that cannot send headers (MCP_URL_KEY).
+	MCPURLKey string
 	// WebBasePath mounts the PWA under a secret, unguessable prefix. Empty
 	// disables the web UI entirely, so it is never exposed by accident.
 	WebBasePath string
@@ -63,6 +66,20 @@ func LoadFor(addr string, stdio bool) (Config, error) {
 	if token == "" && !disabled && !stdio {
 		return Config{}, errors.New("MCP_BEARER_TOKEN is required unless MCP_AUTH_DISABLED=1")
 	}
+	urlKey := strings.TrimSpace(os.Getenv("MCP_URL_KEY"))
+	if urlKey != "" {
+		if len(urlKey) < 32 {
+			return Config{}, errors.New("MCP_URL_KEY must be at least 32 characters (generate with: openssl rand -hex 32)")
+		}
+		if urlKey == token {
+			return Config{}, errors.New("MCP_URL_KEY must differ from MCP_BEARER_TOKEN")
+		}
+		for _, c := range urlKey {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+				return Config{}, errors.New("MCP_URL_KEY may contain only letters, digits, '-' and '_'")
+			}
+		}
+	}
 	tz := strings.TrimSpace(os.Getenv("WORKOUT_TIMEZONE"))
 	if tz == "" {
 		tz = DefaultTimezone
@@ -91,7 +108,7 @@ func LoadFor(addr string, stdio bool) (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("WORKOUT_WEEK_START %q must be sunday or monday", v)
 	}
-	return Config{Addr: addr, DBPath: db, Token: token, AuthDisabled: disabled, WebBasePath: webBase, Timezone: tz, Location: loc,
+	return Config{Addr: addr, DBPath: db, Token: token, AuthDisabled: disabled, MCPURLKey: urlKey, WebBasePath: webBase, Timezone: tz, Location: loc,
 		MediaDir: mediaDir, MaxVideoBytes: maxMB << 20, WeekStart: weekStart}, nil
 }
 
