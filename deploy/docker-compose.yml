@@ -1,0 +1,35 @@
+# Self-hosting on one Linux machine: the engine (API + MCP + web UI) and,
+# optionally, a Cloudflare Tunnel that gives it a public HTTPS address without
+# opening ports. Run from this directory:
+#
+#   docker compose up -d --build                       # engine only (localhost:8080)
+#   docker compose --profile tunnel up -d --build      # engine + tunnel
+#
+# Secrets live in ./.env (see .env.example; chmod 600, never commit it).
+# Data (SQLite + videos + backups) lives in ./data, owned by UID 65532.
+services:
+  workout-body:
+    build:
+      context: ..
+    image: workout-body:local
+    container_name: workout-body
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRAINING_DB_PATH: /data/training.db
+    ports:
+      - "127.0.0.1:8080:8080" # localhost only; the tunnel reaches it over the compose network
+    volumes:
+      - ./data:/data
+
+  cloudflared:
+    # Cloudflare's official image. Updates arrive by re-pulling (docker compose pull).
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    container_name: workout-body-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - workout-body

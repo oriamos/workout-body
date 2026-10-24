@@ -24,3 +24,6 @@ dist
 !internal/uisrv/dist/
 internal/uisrv/dist/*
 !internal/uisrv/dist/.gitkeep
+
+# Self-hosting data (deploy/)
+deploy/data/
